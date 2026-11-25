@@ -1,32 +1,52 @@
 # BiliBS · Bili Big Screen
 
-面向 Android TV 和电视盒子的第三方哔哩哔哩客户端。电视启动器默认进入在线首页。桌面调试版与电视安装包共用界面、遥控器交互、数据模型和播放器。
+**在客厅的大屏幕上，舒服地看 B 站。**
 
-## 安装和运行
+BiliBS 是面向 Android TV 和电视盒子的第三方哔哩哔哩客户端。用遥控器发现视频、追番看剧，也能从上次停下的地方继续观看。
 
-- **Android TV**　安装交付的 BiliBS-TV-1.0.0.apk。也可执行 `adb install -r BiliBS-TV-1.0.0.apk`，然后在电视应用列表打开 BiliBS。目标为 Android TV 8.0 及以上及可更新的 Android System WebView；实际画质和编码取决于设备与片源。
-- **Windows 项目目录**　源码压缩包自带 BiliBS 顶层目录。将包解压至 `C:\Work\Codes\Src\TV` 即可得到 `C:\Work\Codes\Src\TV\BiliBS`。在该目录执行 `python tools/dev_server.py --port 8765`，打开 `http://127.0.0.1:8765/`。桌面开发服务使用 Python 3.10 或更新版本的标准库。
-- **冻结 UI 评审**　在相同地址后加 `?mode=demo`。内嵌片单、账号与短片仅用于演示；线上数据与演示数据分开保存。遥控方向键移动，确定进入，返回逐层退出，菜单键或键盘 M 打开上下文操作。
-- **打开实际账号**　在「我的」左栏进入登录，在自己的手机上确认平台二维码即可授权。Android 凭据由系统密钥库保护；桌面调试服务在当前服务进程内保存会话。注销清除本设备会话，本机观看历史可单独管理。
+![BiliBS 首页：高分精选与视频推荐](.github/screenshots/home.webp)
 
-## 源码与构建
+## 为遥控器和大屏幕而做
 
-| 入口 | 作用 |
-| --- | --- |
-| `index.html`、`src/boot.js`、`src/ui.css` | 本地资源启动与界面样式 |
-| `src/app.js`、`src/features/` | 第六稿交互外壳及内容发现、个人中心、播放器的在线实现 |
-| `src/runtime.js` | 两端使用的组装产物。运行 `python tools/build_ui.py` 更新，`--check` 可验证与源文件一致 |
-| `src/services.js`、`src/transport.js` | 服务端数据归一化，应用到受信宿主的请求契约 |
-| `src/vendor/` | 本地 Shaka Player、hls.js、mpegts.js 与各自许可证 |
-| `tools/dev_server.py`、`android/` | 桌面回环服务、Android TV 工程与原生网络和生命周期 |
-| `baseline/UI-V6.html`、`baseline/SHA256.txt` | 冻结原稿和完整性校验值 |
+- **发现想看的内容**：视频推荐、热门与每周必看、分区、动态和直播。
+- **在客厅挑一部好作品**：电影、电视剧、番剧、纪录片与综艺，配合沉浸海报、作品详情和图片选集。
+- **接着看，也方便找**：扫码登录、追看片单、收藏、观看历史，以及适合遥控器操作的搜索。
 
-在具备 Android SDK Platform 35、Build Tools 35.0.0 和 JDK 的计算机上运行 `python tools/build_android.py` 重建 APK。Android Studio 可打开 android 目录。交付安装包使用开发签名；自行发布或持续签名升级的配置见 [Android 工程说明](android/README.md)。
+## 界面预览
 
-## 验收与文档
+以下为当前版本在 Android TV 模拟器中的实际截图，展示内容会随平台更新。
 
-- [本次实施验收报告](docs/BiliBS-Acceptance.html) 记录实测环境、全屏像素差异、在线控件尺寸、真实播放样本、功能追踪和未签收项。
-- [需求规格说明书](docs/BiliBS-Requirements.html) 固定视觉、焦点、动效及 99 项需求。[立项可行性验证](docs/BiliBS-Feasibility.html) 是实施前的验证记录。[服务契约](api-contract.md) 对应本次开发。
-- 完整受控回归需要 Node.js 18+、Python、Playwright、Pillow、FFmpeg/FFprobe、可用的 Chromium；二维码解码测试还需系统 ZBar。执行 `python tools/verify_release.py --browser /path/to/chrome --visual`。Chrome headless shell 可附加 `--single-process`。
-- 实网复验入口包括 `verification/services_browser_online.py`、`verification/discovery_check.py --live-art`、`verification/player_platform_probe.py` 及账号配对检查。测试生成临时扫码及只读网络请求，记录脱敏结果。当前地区、片源、实际账号和设备会改变可得内容。
-- `verification/evidence/` 保留逐项机器可读观测。涉及账号写入的受控用例、匿名实网响应和设备侧结果分别记录；模拟数据测试不会改动用户的 B 站账号。
+| 影视频道 | 作品详情 |
+| :---: | :---: |
+| ![电影频道与横幅选片](.github/screenshots/cinema.webp) | ![作品详情与相关作品](.github/screenshots/detail.webp) |
+| **纪录片** | **影视解说** |
+| ![纪录片频道的官方精选横幅](.github/screenshots/documentary.webp) | ![影视解说的侧栏与视频片库](.github/screenshots/library.webp) |
+
+**播放与选集**
+
+![播放过程中展开图片选集](.github/screenshots/player.webp)
+
+## 开始使用
+
+适用于 Android TV 8.0 及以上设备，需要可用的 Android System WebView。
+
+方向键移动，确定键打开，返回键逐层退出。播放时先按返回收起工具，再按一次返回退出播放。
+
+[安装与构建说明](android/README.md) · [问题反馈与建议](https://github.com/HAHAHAMMER/BiliBS/issues)
+
+<details>
+<summary>开发与本地体验</summary>
+
+在项目根目录运行 `python tools/dev_server.py --port 8765`，然后打开 <http://127.0.0.1:8765/>，可在浏览器中体验界面。键盘方向键、Enter 和 Esc 对应遥控器操作。
+
+Windows 可运行 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/start_emulator.ps1`，自动构建、校验并在 Android TV 模拟器中打开当前版本。需要 Python、JDK、Android SDK 和已创建的电视模拟器；可用 `-Python`、`-Sdk`、`-Avd` 指定本机环境。
+
+</details>
+
+## 声明
+
+BiliBS 是独立第三方项目，与哔哩哔哩及其关联公司无隶属、合作或背书关系。
+
+仅供个人学习、研究与非商业使用。禁止销售、付费分发、广告变现、商业预装及其他商业用途。第三方组件遵循各自许可证。
+
+视频、图片、音频、文字及商标等权利归相应权利人所有，内容访问以平台授权、账号权限和所在地区为准。权利人如有异议，可通过 [Issues](https://github.com/HAHAHAMMER/BiliBS/issues) 联系维护者。
