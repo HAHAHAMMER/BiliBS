@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>BiliBS · Bili Big Screen</title><link rel="stylesheet" href="src/ui.css"></head><body>
+<main id="tv" aria-label="BiliBS 大屏幕版">
+<div id="shell"><header><div class="brand"><i class="brandIcon" aria-hidden="true"></i>Bili<span>BS</span></div><nav id="nav" aria-label="主导航"></nav><div id="quick"></div><div class="time" aria-label="当前时间"></div></header>
+<div id="view" tabindex="-1"></div><footer><div class="footHints" id="hints"></div><span id="footContext"></span></footer></div>
+<section id="player" hidden aria-label="播放器"><video id="video" playsinline preload="metadata"></video><div class="comments" aria-hidden="true"></div><div class="shade"></div><div id="phead"><div class="brand small"><i class="brandIcon"></i>Bili<span>BS</span></div><span id="pKind"></span><span class="time"></span></div>
+<div id="hud"><div class="p-eyebrow" id="pSub"></div><h1 id="pTitle"></h1><div class="timelineRow"><button type="button" id="seek" data-k="seek" role="slider" aria-label="播放进度" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><i class="track"><b id="trackFill"></b></i></button><div id="pTime"></div></div><div id="pControls"></div></div><div id="pFoot"></div>
+<section id="sheet" role="dialog" aria-modal="true" hidden></section><div id="mediaError" hidden>样片暂时无法播放 <button type="button" data-k="media-retry" data-row="error" data-act="retryMedia" class="secondary">重试</button></div></section>
+<div id="layer" hidden></div><div id="toast" role="status" aria-live="polite"></div></main><script src="src/boot.js"></script></body></html>

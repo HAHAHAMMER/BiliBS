@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.jks
+*.keystore
+*.apk
+*.idsig
+
+# AI 助手工作目录与本地过程产物
+.workbuddy/
+.codex/
+
+# 开发过程文档与设计冻结件
+docs/
+baseline/
+
+# 自测报告、截图与取证输出
+verification/evidence/
+
+# 本机专用启动脚本
+start-emulator.cmd
+
+# Local design references, requirements and acceptance records
+/api-contract.md
+/verification/reference/
+/verification/requirements.json
+/verification/*traceability.csv

@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'tv.bilibs.app'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId 'tv.bilibs.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 10000
+        versionName '1.0.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/web-assets'))
+}
+
+// Use the same web assembly step as the SDK-only command and keep source files untouched.
+def webDirectory = layout.buildDirectory.dir('generated/web-assets')
+def webAssets = tasks.register('syncWebAssets', Exec) {
+    def projectRoot = rootProject.projectDir.parentFile
+    workingDir projectRoot
+    inputs.files(fileTree(projectRoot) {
+        include 'index.html', 'src/**', 'assets/**', 'tools/build_ui.py', 'tools/stage_android_web.py'
+        exclude '**/node_modules/**', '**/__pycache__/**', '**/*.map'
+    })
+    outputs.dir(webDirectory)
+    doFirst { delete(webDirectory.get().asFile) }
+    commandLine System.getenv('BILIBS_PYTHON') ?: 'python', 'tools/stage_android_web.py',
+            webDirectory.get().asFile.absolutePath
+}
+tasks.named('preBuild').configure { dependsOn(webAssets) }
