@@ -2,19 +2,25 @@
   "GET": {
     "api.bilibili.com": [
       "/x/web-interface/wbi/index/top/feed/rcmd", "/x/web-interface/popular", "/x/web-interface/popular/series/list",
-      "/x/web-interface/popular/series/one", "/x/web-interface/ranking/v2", "/x/web-interface/wbi/search/type",
+      "/x/web-interface/popular/series/one", "/x/web-interface/region/feed/rcmd", "/x/web-interface/ranking/v2", "/x/web-interface/wbi/search/type",
       "/x/web-interface/wbi/search/square", "/x/web-interface/view", "/x/web-interface/archive/related", "/x/web-interface/archive/relation",
       "/x/web-interface/nav", "/x/web-interface/history/cursor", "/x/web-interface/card",
       "/pgc/season/index/result", "/pgc/season/index/condition", "/pgc/web/rank/list", "/pgc/season/rank/web/list",
+      "/pgc/page/web/v2", "/pgc/page/web/v3", "/pgc/page/web/feed", "/pgc/page/web/v3/feed",
       "/pgc/view/web/season", "/pgc/season/web/related/recommend", "/pgc/player/web/playurl",
-      "/x/player/playurl", "/x/v1/dm/list.so", "/x/polymer/web-dynamic/v1/feed/all", "/x/polymer/web-dynamic/v1/feed/space",
+      "/x/player/playurl", "/x/player/videoshot", "/x/v1/dm/list.so", "/x/polymer/web-dynamic/v1/feed/all", "/x/polymer/web-dynamic/v1/feed/space",
       "/x/polymer/web-dynamic/v1/detail", "/x/space/wbi/arc/search", "/x/relation/followings", "/x/relation",
       "/x/v2/history/toview/web", "/x/v3/fav/folder/created/list-all", "/x/v3/fav/resource/list",
-      "/x/space/bangumi/follow/list", "/x/space/like/video"
+      "/x/space/bangumi/follow/list", "/x/space/like/video", "/x/v2/reply/wbi/main", "/x/v2/reply/reply"
+    ],
+    "www.bilibili.com": [
+      "/c/cinephile/", "/c/ent/", "/c/music/", "/c/dance/", "/c/douga/", "/c/kichiku/", "/c/game/",
+      "/c/information/", "/c/knowledge/", "/c/tech/", "/c/car/", "/c/fashion/", "/c/sports/",
+      "/c/food/", "/c/travel/", "/c/animal/", "/c/life_experience/"
     ],
     "api.live.bilibili.com": [
       "/room/v1/Area/getList", "/room/v1/Room/get_info", "/room/v1/Room/get_status_info_by_uids",
-      "/xlive/web-interface/v1/second/getList", "/xlive/web-interface/v1/webMain/getMoreRecList", "/xlive/web-ucenter/v1/xfetter/GetWebList",
+      "/room/v3/area/getRoomList", "/xlive/web-interface/v1/webMain/getMoreRecList", "/xlive/web-ucenter/v1/xfetter/GetWebList",
       "/xlive/web-room/v2/index/getRoomPlayInfo", "/xlive/web-room/v1/dM/gethistory"
     ],
     "s.search.bilibili.com": ["/main/suggest"],

@@ -26,4 +26,4 @@ if __name__ == '__main__':
         if not dest.exists() or result != dest.read_text(encoding='utf-8'):
             raise SystemExit('src/runtime.js is out of date')
     else:
-        dest.write_text(result, encoding='utf-8')
+        dest.write_bytes(result.encode('utf-8'))

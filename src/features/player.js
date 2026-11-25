@@ -50,17 +50,18 @@ if (bsOnline) {
   }
   function dashChoices(result, qn, options) {
     const audios = (result.audio || []).filter(t => supported(t, 'audio'))
-      .sort((a,b) => (options.audio === 'std' ? 1 : -1) * (a.bandwidth - b.bandwidth));
+      .sort((a,b) => (options.audio==='auto'?Number(!a.codec.startsWith('mp4a'))-Number(!b.codec.startsWith('mp4a')):0)
+        || (options.audio === 'std' ? 1 : -1) * (a.bandwidth - b.bandwidth));
     const priority = [...new Set([options.codec === 'auto' ? 'avc' : options.codec, 'avc', 'hevc', 'av1'])];
     const rank = v => { const n = priority.indexOf(codecFamily(v.codec)); return n < 0 ? 100 : n; };
     let videos = (result.video || []).filter(t => supported(t, 'video'));
     if (qn) videos = videos.filter(t => Number(t.id) === Number(qn));
-    videos.sort((a,b) => (options.quality==='low'?a.id-b.id:b.id-a.id) || rank(a) - rank(b));
+    videos.sort((a,b) => rank(a)-rank(b) || (options.quality==='low'?a.id-b.id:b.id-a.id));
     // Try a compatible lower tier after an automatic selection fails. Manual
     // selections never silently change the claimed quality.
     const choices = [];
-    for (const v of videos) {
-      for (const a of audios) choices.push({type:'dash', v, a, duration:sec(result.duration), quality:v.id});
+    for (const a of audios) {
+      for (const v of videos) choices.push({type:'dash', v, a, duration:sec(result.duration), quality:v.id});
     }
     return choices;
   }
@@ -279,12 +280,18 @@ if (bsOnline) {
   }
 
   let session = null, previewId = 0, shelfId = 0;
-  const isCurrent = p => session === p && playingRoute === p.route;
+  const isCurrent = p => session === p && playingRoute === p.route && current()===p.route;
   const position = p => p.ready ? (p.out?.offset||0) + sec(video.currentTime) : sec(p.at);
   const total = p => p.route.room ? 0 : p.choice?.duration || sec(video.duration) || sec(recordFor(p.route).duration);
   function setStatus(p,text,failed=false) {
     if (!isCurrent(p)) return;
     p.status = text;
+    const waiting=!failed&&!p.presented&&!(p.ready&&p.paused);
+    const wasWaiting=player.classList.contains('loading');
+    player.classList.toggle('loading',waiting);player.setAttribute('aria-busy',String(waiting));
+    player.classList.toggle('failed',failed);
+    if(wasWaiting&&!waiting&&!failed&&!overlay&&!player.contains(document.activeElement))
+      focus(p.route.room?'toggle':'seek',false);
     $('pKind').textContent = [p.route.room?'直播间':W[p.route.id]?'影视作品':'视频投稿',text].filter(Boolean).join(' · ');
     $('mediaError').hidden = !failed;
     if (failed) {
@@ -301,8 +308,12 @@ if (bsOnline) {
 
   function setVideoState(p) {
     video.loop=false; video.style.objectFit=prefs.fitMode; video.playbackRate=p.route.room?1:prefs.speed;
-    if (p.paused) video.pause();
-    else video.play().catch(() => { if (isCurrent(p)) { wake(false); updateControls(); } });
+    if (p.paused) {if(!video.paused)video.pause();}
+    else if(video.paused)video.play().catch(err=>{
+      if(!isCurrent(p)||p.paused||err.name==='AbortError')return;
+      if(err.name==='NotSupportedError'){p.onFailure?.(err);return}
+      p.paused=true;setStatus(p,p.format+' · 已暂停');wake(false);updateControls();
+    });
   }
   async function openMain(p,choice,start,token) {
     p.ready=false; p.presented=false; p.at=start; p.choice=choice;clearTimeout(p.bufferTimer);
@@ -376,7 +387,7 @@ if (bsOnline) {
         if(qn)choices=choices.filter(c=>Number(c.quality)===qn);
         if (p.line) { const chosen=choices.find(c=>[c.format,c.codec,c.line].join('/')===p.line); if(chosen) choices=[chosen,...choices.filter(c=>c!==chosen)]; }
       } else choices=dashChoices(result,qn,prefs);
-      let progressiveTried=!!p.route.room, dashAttempts=0;
+      let progressiveTried=!!p.route.room, lowTried=!!p.route.room||!!qn, dashAttempts=0;
       const file=progressiveChoice(result);
       if (file && (!qn || Number(file.quality)===qn)) { choices.push(file); progressiveTried=true; }
       async function next(failure) {
@@ -390,6 +401,13 @@ if (bsOnline) {
               const f=progressiveChoice(r); if(f&&(!qn||Number(f.quality)===qn)) {p.trial=!!r.preview; choices.push(f);}
               if (!valid()) return;
             } catch(e) { if(restriction(e)) throw e; err=e; }
+          }
+          if (!choices.length && !lowTried) {
+            lowTried=true;
+            const lower=await api('play',{...id,qn:16,format:'progressive'});
+            if(!valid())return;
+            const file=progressiveChoice(lower);
+            if(file){p.trial=!!lower.preview;choices.push(file)}
           }
           const choice=choices.shift();
           if (choice?.type==='dash'&&++dashAttempts>6) {choices=choices.filter(c=>c.type!=='dash');continue;}
@@ -525,23 +543,24 @@ if (bsOnline) {
   stopWatch = function() {
     if (!session) return;
     rememberPlayback(true); stopEpisodePreview(); clearTimeout(session.chatTimer);clearTimeout(session.bufferTimer);
-    session.token++; session=null; activeMedia=null; playingRoute=null; previewSeek=null;
+    clearTimeout(session.intentTimer);session.token++; session=null; activeMedia=null; playingRoute=null; previewSeek=null;
     clearTimeout(hudTimer); cancelCountdown(); clearOutput(video);
-    $('mediaError').hidden=true; player.querySelector('.comments').replaceChildren(); player.classList.remove('quiet');
+    $('mediaError').hidden=true; player.querySelector('.comments').replaceChildren(); player.classList.remove('quiet','loading','failed','withShelf');
   };
   startWatch = function(id,ep=0,opts={}) {
     id=String(id);
     if (!opts.room&&!V[id]&&!W[id]) { notice('条目已失效');return; }
     const visible=[...view.querySelectorAll('[data-act="play"]')].map(n=>n.dataset.id).filter(x=>V[x]);
+    const {push:pushRoute,...settings}=opts;
     const s={type:'player',id,ep:W[id]?Math.max(1,Number(ep)||1):Number(ep)||0,
-      focus:opts.room?'toggle':'seek',queue:[...new Set([id,...visible])],...opts};
-    if(current().type==='player') { stopWatch(); pages[pages.length-1]=s;stamp();render(); }
+      focus:opts.room?'toggle':'seek',queue:[...new Set([id,...visible])],...settings};
+    if(current().type==='player'&&!pushRoute) { stopWatch(); pages[pages.length-1]=s;stamp();render(); }
     else go(s);
   };
   renderWatch = function(s) {
     $('shell').hidden=true; player.hidden=false;
     const key=playKey(s)+'|'+(s.room||'');
-    if (!session || activeMedia!==key) {
+    if (!session || activeMedia!==key || session.route!==s) {
       stopWatch();
       const prior=progress[playKey(s)], at=s.room?0:sec(s.at??(prior&&!prior.done?prior.t:0));
       const p=session={route:s,token:0,ready:false,at,explicitStart:s.at!=null||!!prior,paused:!!s.restorePaused,ended:false,
@@ -564,13 +583,31 @@ if (bsOnline) {
     return i>=0&&queue[i+1]?{id:queue[i+1],ep:0}:null;
   };
   doPlay=function(){if(!session)return; session.paused=false;if(session.ready)setVideoState(session);};
+  function requestPlayback(p,paused){
+    if(!isCurrent(p))return;
+    p.paused=paused;
+    clearTimeout(p.intentTimer);
+    if(!p.ready)return;
+    // A remote burst has one final transport intent. Keep the decoder attached.
+    p.intentTimer=setTimeout(()=>{
+      if(!isCurrent(p)||!p.ready)return;
+      if(!p.paused && p.ended){cancelCountdown();p.ended=false;jump(0);p.paused=false}
+      setVideoState(p);
+      setStatus(p,p.paused?p.format+' · 已暂停':p.format);
+    },55);
+  }
   toggle=function(){
-    const p=session; if(!p)return;
+    if(!session)return;
     wake(false);
-    if(!p.ready){ if(!$('mediaError').hidden)loadMain(p,true); else p.paused=!p.paused; return; }
-    if(video.paused||p.ended){cancelCountdown();if(p.ended){p.ended=false;jump(0);}doPlay();}
-    else {p.paused=true;video.pause();}
+    if(!$('mediaError').hidden)return;
+    requestPlayback(session,!session.paused && !session.ended);
   };
+  document.addEventListener('keydown',e=>{
+    if(!session || e.defaultPrevented || !['MediaPause','MediaPlay','MediaPlayPause'].includes(e.key))return;
+    e.preventDefault();
+    if(!e.repeat)requestPlayback(session,e.key==='MediaPause'||(e.key==='MediaPlayPause'&&!session.paused&&!session.ended));
+  });
+
   changeSource=()=>{ if(session)loadMain(session,true); };
   updateProgress=function(){
     const p=session;
@@ -649,6 +686,7 @@ if (bsOnline) {
   updateControls=function(){
     if(!session||current().type!=='player')return;
     baseControls();
+    $('pFoot').textContent=$('pFoot').textContent.replace(/返回 退出(?:播放|直播)/,'返回 收起工具');
     const s=session.route, w=recordFor(s), personal=window.BSPersonal;
     const mark=(key,kind,id,yes,no)=>{
       const button=node(key);if(!button)return;
@@ -684,14 +722,12 @@ if (bsOnline) {
         options.push({id:'auto',label:'自动（兼容优先）',on:true});
         const labels=new Map((result.qualities||[]).map(q=>[Number(q.id),q.label]));
         for(const id of playable)if(id&&!labels.has(id))labels.set(id,'画质 '+id);
-        for(const [id,label] of labels)options.push({id:String(id),label:label+(playable.has(id)?'':' · 未提供可用地址'),on:playable.has(id)});
+        for(const [id,label] of labels)if(playable.has(id)||p.verified?.has(id))options.push({id:String(id),label,on:true});
       }
       if(!isLine&&p.verified)for(const q of options)if(p.verified.has(Number(q.id))) {q.on=true;q.label=q.label.replace(' · 未提供可用地址','');}
       const selected=String(isLine?(p.choice?[p.choice.format,p.choice.codec,p.choice.line].join('/'):''):p.quality);
       let body=options.map((q,i)=>q.on?op('wp-'+i,'wp'+i,'watchPick',q.id,q.label,selected===q.id):
         '<div class="lockedTier">'+esc(q.label)+'</div>').join('')||empty('暂无线路');
-      if(!isLine&&options.some(q=>!q.on)&&!p.checkedQualities)body+=op('wp-check','wp-check','verifyQuality','','查询其余档位的授权片源');
-      if(p.checkingQualities)body+='<p>正在确认片源…</p>';
       return {title:isLine?'直播线路':'播放画质',desc:'',body,initial:'wp-'+Math.max(0,options.findIndex(q=>q.id===selected&&q.on))};
     }
     if(o.mode==='tech')return detailsPanel();
@@ -699,9 +735,12 @@ if (bsOnline) {
     if(o.mode==='queue'){
       const panel=recommendationPanel(s);
       if(!relatedVideos(s).length&&p.relatedError)panel.body=empty('推荐暂不可用');
+      panel.body=panel.body.replace(/data-row="queue\d+"/g,'data-row="queue"');
       return panel;
     }
-    return v6Panel(o);
+    const panel=v6Panel(o);
+    if(o.mode==='speed')panel.desc='';
+    return panel;
   };
   detailsPanel=function(){
     const p=session,c=p?.choice, s=p.route,t=c?.v, a=c?.a;
@@ -728,6 +767,10 @@ if (bsOnline) {
   watchAction=function(a,id,k){
     const p=session;
     if(!p)return;
+    if(a==='queuePlay'){
+      const open=()=>startWatch(id,0,{queue:p.route.queue,push:true});
+      if(overlay)completeOverlay(open);else open();return;
+    }
     if(a==='retryMedia'){p.at=position(p);loadMain(p,true);return;}
     if(a==='verifyQuality'){
       if(p.checkingQualities||!p.result||!p.ids)return;
@@ -760,10 +803,10 @@ if (bsOnline) {
   };
   episodePanel=function(s){
     const arr=episodeList(s), n=s.ep||1, w=W[s.id];
-    const choices=arr.map((ep,i)=>b('wep-'+(i+1),'epRow'+Math.floor(i/6),'watchEpisode',i+1,
-      esc(w?ep.title||epname(w,i+1):'P'+(i+1))+(n===i+1?'<i>播放中</i>':''),'epChoice',
+    const choices=arr.map((ep,i)=>b('wep-'+(i+1),'epRow','watchEpisode',i+1,
+      window.BSEpisodeArt.thumb(ep,recordFor(s),metaLabel(s,i+1))+'<strong>'+esc(w?[ep.title,ep.longTitle].filter(Boolean).join(' · ')||epname(w,i+1):'P'+(i+1)+' · '+metaLabel(s,i+1))+'</strong>'+(n===i+1?'<i>播放中</i>':''),'epChoice episodeCard',
       'aria-pressed="'+(n===i+1)+'" aria-label="'+esc(metaLabel(s,i+1))+'"')).join('');
-    return {title:w?'选集':'分 P',desc:recordFor(s).title,body:'<div class="epDockBody"><div class="episodePreview"><div id="epVisual"></div><strong id="epName"></strong><small id="epStatus"></small></div><div class="epChoices">'+choices+'</div></div>',initial:'wep-'+n,cls:'episodeDock'};
+    return {title:w?'选集':'分 P',desc:'',body:'<div class="epChoices">'+choices+'</div>',initial:'wep-'+n,cls:'episodeDock'};
   };
 
   // Previews have their own media element and lifecycle. Moving focus invalidates
@@ -808,14 +851,12 @@ if (bsOnline) {
   showEpisodePreview=function(n){
     const s=current(),slot=$('epVisual');
     if(!slot||s.type!=='player')return;
-    stopEpisodePreview();const epoch=previewId, ep=episodeList(s)[n-1]||{}, w=recordFor(s);
+    stopEpisodePreview();const ep=episodeList(s)[n-1]||{}, w=recordFor(s);
     const index=W[s.id]?n:n===1?0:n, p=progress[s.id+':'+index], status=$('epStatus');
-    slot.innerHTML=paint('episode',ep.cover||w.still||w.wide||w.cover,w.title,'episodeStill');
+    slot.innerHTML=window.BSEpisodeArt.thumb(ep,w,metaLabel(s,n),p?.t>30?p.t:undefined);
     $('epName').textContent=metaLabel(s,n)||'P'+n;
     status.textContent=(p?.done?'已看完':p?.t?'上次看到 '+clock(p.t):'尚未观看')+' · 确定播放';
-    const valid=()=>epoch===previewId&&slot.isConnected&&overlay?.mode==='episodes';
-    episodePreviewTimer=setTimeout(()=>preview({id:s.id,ep:index},slot,Math.max(0,sec(p?.t)-5),valid,'visible',status)
-      .catch(()=>{if(valid())status.textContent+=' · 暂无可播放预览';}),300);
+    window.BSEpisodeArt.observe();
   };
   stopShelfPreview=function(){
     shelfId++;clearTimeout(previewTimer);previewOwner=null;

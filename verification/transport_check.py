@@ -150,6 +150,41 @@ class Boundary(unittest.TestCase):
             gateway.bounded_decompress(zlib.compress(b'x'*(gateway.LIMIT+1)),15)
         self.assertIsNone(gateway.NoRedirect().redirect_request(None,None,302,'',{},'https://example.net/'))
 
+    def test_weekly_signs_list_and_future_issues_with_guest_nav_keys(self):
+        nav = {'code':-101,'data':{'wbi_img':{
+            'img_url':'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+            'sub_url':'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png'}}}
+        expected = (('list','5295f8a00b73f35334f058ac0f8b70da'),
+                    ('one?number=401','ea7496368d24a3a4ae2a6a32224ffc86'),
+                    ('one?number=402','f7b207d3c09f06b8db14407f5d8b26a2'))
+        for suffix,signature in expected:
+            self.session=gateway.Session()
+            visitor=Reply(b'<html/>',headers=[('Set-Cookie','buvid3=visitor; Domain=.bilibili.com; Path=/; Max-Age=3600')])
+            with self.subTest(suffix=suffix), patch.object(gateway.time,'time',return_value=1702204169), \
+                    patch.object(gateway,'open_upstream',side_effect=[visitor,Reply(nav),Reply({'code':0,'data':{'list':[]}})]) as upstream:
+                self.session.request({'url':API+'/x/web-interface/popular/series/'+suffix})
+                self.assertEqual(upstream.call_args_list[0].args[1],'https://www.bilibili.com/c/knowledge/')
+                self.assertEqual(upstream.call_args_list[1].args[1],API+'/x/web-interface/nav')
+                query=parse_qs(gateway.urlsplit(upstream.call_args_list[2].args[1]).query)
+                self.assertEqual(query['wts'],['1702204169'])
+                self.assertEqual(query['w_rid'],[signature])
+                self.assertIn('buvid3=visitor',upstream.call_args_list[2].args[4]['Cookie'])
+        with patch.object(gateway,'open_upstream',side_effect=[Reply(b'<html/>'),Reply({'code':-101,'data':{}})]),self.assertRaises(gateway.Denied):
+            self.session.request({'url':API+'/x/web-interface/popular/series/list'})
+
+    def test_public_visitor_initialization_preserves_account_cookies(self):
+        handle=self.make_qr()
+        with patch.object(gateway,'open_upstream',return_value=confirmed()):
+            self.session.request({'url':QR+'poll?qrcode_key='+handle})
+        page=Reply(b'<html/>',headers=[
+            ('Set-Cookie','buvid3=visitor; Domain=.bilibili.com; Path=/; Max-Age=3600'),
+            ('Set-Cookie','SESSDATA=anonymous; Domain=.bilibili.com; Path=/')])
+        with patch.object(gateway,'open_upstream',return_value=page):
+            self.session.request({'url':'https://www.bilibili.com/c/knowledge/'})
+        cookies={c.name:c.value for c in self.session.jar}
+        self.assertEqual(cookies['buvid3'],'visitor')
+        self.assertEqual(cookies['SESSDATA'],'synthetic-secret')
+
 class HttpIntegration(unittest.TestCase):
     def setUp(self):
         self.server=gateway.server(0)
@@ -179,14 +214,16 @@ class HttpIntegration(unittest.TestCase):
         req=b'{"control":"cancelQr"}'
         for patch_headers in [{'Cookie':''},{'Origin':'http://evil.test'},{'Origin':'null'},
                               {'Content-Type':'text/plain'},{'X-BiliBS-Request':''}]:
-            self.assertEqual(self.call('POST','/__bs/request',{**h,**patch_headers},req)[0],403)
+            # Test the header rejection before a request body. Windows can reset
+            # the socket if an early-denying server closes while a body is sent.
+            self.assertEqual(self.call('POST','/__bs/request',{**h,**patch_headers})[0],403)
         self.assertEqual(self.call('POST','/__bs/request',h,req)[0],200)
         status,headers,_=self.call('POST','/__bs/clear',h,b'{}')
         self.assertEqual(status,200)
         self.assertIn('HttpOnly',headers['Set-Cookie'])
         self.assertIn('SameSite=Strict',headers['Set-Cookie'])
         self.assertNotIn(self.cookie,headers['Set-Cookie'])
-        self.assertEqual(self.call('POST','/__bs/request',h,req)[0],403)
+        self.assertEqual(self.call('POST','/__bs/request',h)[0],403)
     def test_public_raster_scope_signature_and_limits(self):
         path='/__bs/image/i1.hdslb.com/bfs/archive/sample.jpg@336w_190h_1c.webp'
         headers={'Cookie':self.cookie,'Sec-Fetch-Site':'same-origin'}
@@ -197,6 +234,11 @@ class HttpIntegration(unittest.TestCase):
         self.assertEqual(upstream.call_args.args[1:],
             ('https://i1.hdslb.com/bfs/archive/sample.jpg@336w_190h_1c.webp','GET'))
         self.assertFalse(upstream.call_args.kwargs)
+        sprite='/__bs/image/bimp.hdslb.com/videoshotpvhdboss/123_ab-0001.jpg@1600w.webp'
+        with patch.object(gateway,'open_upstream',return_value=Reply(body,headers=[('Content-Type','image/webp')])):
+            self.assertEqual(self.call('GET',sprite,headers)[0],200)
+        for target in [sprite.replace('/videoshotpvhdboss/','/private/'),sprite.replace('bimp.hdslb.com','outside.test'),sprite+'?token=bad']:
+            self.assertEqual(self.call('GET',target,headers)[0],403)
         for target in [path.replace('i1.hdslb.com','outside.test'),path.replace('/bfs/','/api/'),
                        path+'?access=anything',path.replace('/archive/','/../'),
                        path.replace('.jpg@336w_190h_1c.webp','.svg'),path.replace('i1.hdslb.com','i1.hdslb.com:444')]:

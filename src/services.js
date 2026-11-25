@@ -7,6 +7,9 @@
   const SUGGEST = 'https://s.search.bilibili.com';
   const types = {anime: 1, movie: 2, doc: 3, guochuang: 4, drama: 5, variety: 7};
   const typeNames = Object.fromEntries(Object.entries(types).map(([name, id]) => [id, name]));
+  const regionPaths = {1001:'cinephile',1002:'ent',1003:'music',1004:'dance',1005:'douga',1007:'kichiku',
+    1008:'game',1009:'information',1010:'knowledge',1012:'tech',1013:'car',1014:'fashion',1018:'sports',
+    1020:'food',1022:'travel',1024:'animal',1031:'life_experience'};
   const PAGE_SIZE = 20;
 
   function error(code, message, status = 0) {
@@ -119,7 +122,7 @@
     const seasonId = id(x.season_id);
     const kind = typeNames[x.season_type ?? x.media_type ?? x.type] || fallbackKind || 'season';
     const release = text(x.new_ep?.desc || x.new_ep?.index_show || x.index_show || x.newest_ep?.desc);
-    const year = String(x.publish?.pub_time || x.pubtime_year || x.year || '').match(/^\d{4}/)?.[0] || '';
+    const year = String(x.pubtime_year || x.year || x.publish?.release_date || (/上映|首播/.test(release)?release:'')).match(/(?:19|20)\d{2}/)?.[0] || '';
     return {kind, id: seasonId, seasonId, title: text(x.season_title || x.title),
       cover: https(x.cover || x.pic), wide: https(x.horizontal_cover_169 || x.bkg_cover || x.horizontal_cover_1610 || x.cover_16_9),
       desc: text(x.evaluate || x.desc || x.subTitle || x.description), artist: '', mid: '', duration: 0,
@@ -187,19 +190,70 @@
       return list(d?.list, videoCard, i, d?.no_more === false || (d?.no_more == null && d?.list?.length === PAGE_SIZE));
     },
     async weekly(p) {
-      let number = p.number;
+      let number = p.number, issue;
       if (!number) {
-        const d = await get('/x/web-interface/popular/series/list');
+        const d = await get('/x/web-interface/popular/series/list', {web_location:'333.934'});
         const issues = array(d?.list, '周刊列表');
         if (!issues.length) return {items: [], next: null};
-        number = issues[0].number;
+        issue=issues[0];number=issue.number;
       }
-      const d = await get('/x/web-interface/popular/series/one', {number: reqId(number, 'number')});
-      return {...list(d?.list, videoCard), number: String(number), title: text(d?.config?.name)};
+      number=reqId(number,'number');
+      try{
+        const d=await get('/x/web-interface/popular/series/one',{number,web_location:'333.934'});
+        return {...list(d?.list,videoCard),number,mediaId:id(d?.config?.media_id),title:text(d?.config?.name)};
+      }catch(err){
+        // The publisher also releases a public collection. Only accept a verified
+        // collection for this exact issue, including the publisher and issue title.
+        const mediaId=id(issue?.media_id)||(p.knownIssue?.number===number?id(p.knownIssue.mediaId):'');
+        if(!mediaId || ![-352,412,403,429].includes(Number(err.code)))throw err;
+        const items=[];let more=true;
+        for(let pn=1;more;pn++){
+          const folder=await get('/x/v3/fav/resource/list',{media_id:mediaId,pn,ps:20});
+          if(String(folder?.info?.upper?.mid)!=='412466388' || !String(folder.info.title).includes('第'+number+'期'))throw err;
+          const videos=rows(folder.medias,x=>x.type===2?videoCard(x):null);
+          items.push(...videos);
+          more=!!folder.has_more && pn*20<Number(folder.info.media_count);
+        }
+        if(!items.length)throw err;
+        return {items,number,mediaId,title:text(issue?.name)||'第'+number+'期',next:null};
+      }
     },
     async region(p) {
-      const d = await get('/x/web-interface/ranking/v2', {rid: reqId(p.rid, 'rid'), type: 'all'});
-      return list(d?.list, videoCard);
+      const channel = regionPaths[p.rid];
+      if (!channel) {
+        const d = await get('/x/web-interface/ranking/v2', {rid:reqId(p.rid,'rid'),type:'all'});
+        return list(d?.list,videoCard);
+      }
+      const i=page(p);
+      try{
+        const d=await get('/x/web-interface/region/feed/rcmd',{from_region:p.rid,display_id:i,request_cnt:15,device:'web',plat:30,web_location:'333.40138'});
+        return list(d?.archives,x=>videoCard({...x,owner:x.author,pic:x.cover}),i,d?.archives?.length>0);
+      }catch(error){
+        if(Number(error.code)===62013)return {items:[],next:null};
+        if(i>1 || ![403,412,429,-352].includes(Number(error.code)))throw error;
+      }
+      // Read the public channel's rendered cards. The detached template never runs page scripts or loads its images.
+      const {body}=await transport('https://www.bilibili.com','/c/'+channel+'/');
+      const markup=document.createElement('template');
+      markup.innerHTML=body;
+      const cards=[...markup.content.querySelectorAll('.bili-video-card')].map(el=>{
+        const cover=el.querySelector('.bili-cover-card');
+        const author=el.querySelector('.bili-video-card__author');
+        return {bvid:cover?.getAttribute('href')?.match(/\/video\/(BV\w{10})/)?.[1],
+          title:el.querySelector('.bili-video-card__title')?.textContent.trim(),
+          pic:cover?.querySelector('img')?.getAttribute('src'),
+          duration:cover?.querySelector('.bili-cover-card__stat:last-child')?.textContent.trim(),
+          author:author?.textContent.trim().split(' · ')[0],mid:author?.getAttribute('href')?.match(/\.com\/(\d+)/)?.[1]};
+      });
+      if(!cards.length){
+        for(const link of markup.content.querySelectorAll('a.cover-wrap[href*="/video/BV"]')){
+          const img=link.querySelector('img');
+          if(img)cards.push({bvid:link.getAttribute('href').match(/\/video\/(BV\w{10})/)?.[1],title:img.alt,pic:img.getAttribute('src')});
+        }
+      }
+      const result=list(cards,videoCard);
+      if(!result.items.length)malformed('频道视频列表');
+      return {...result,next:2};
     },
     async catalog(p) {
       const i = page(p), t = seasonType(p.kind);
@@ -213,6 +267,31 @@
         order: p.order ?? 2, sort: p.sort ?? 0, area: p.area ?? -1, style_id: p.styleId ?? p.style ?? -1,
         is_finish: p.isFinish ?? -1, season_status: p.seasonStatus ?? -1, season_version: -1, season_month: -1, copyright: -1, ...dates});
       return list(d?.list, x => seasonCard(x, p.kind), i, bool(d?.has_next), d?.total);
+    },
+    async channelPage(p) {
+      const name=({movie:'movie',drama:'tv',anime:'anime',doc:'documentary',variety:'variety'})[p.kind]||invalid('kind');
+      const d=await get('/pgc/page/web/'+(p.kind==='anime'?'v3':'v2'),{name,...(p.kind==='anime'?{abtest_key:'ogv_channel_page_26_9',abtest_result:1}:{})});
+      const modules=array(d?.modules,'频道模块');
+      const flatten=items=>(items||[]).flatMap(x=>x.sub_items?flatten(x.sub_items):[x]);
+      const convert=async(x,banner=false)=>{
+        const link=String(x.link||''),sid=id(x.season_id)||link.match(/\/bangumi\/play\/ss(\d+)/)?.[1];
+        const epId=id(x.episode_id)||link.match(/\/bangumi\/play\/ep(\d+)/)?.[1];
+        if(!sid&&!epId)return null;
+        const base=sid?seasonCard({...x,season_id:sid},p.kind):await ops.season({epId});
+        const image=https(x.big_cover||x.cover),wide=https(x.hover?.img)||image;
+        return {...base,title:text(x.title).replace(/^《|》$/g,'')||base.title,desc:text(x.evaluate||x.sub_title)||base.desc,
+          wide,score:num(x.rating,base.score),...(banner?{channelHero:image,channelIntro:text(x.sub_title||x.play_title),hero:image}:{} )};
+      };
+      const banner=modules.find(m=>/^web_banner/.test(m.style)),hot=modules.filter(m=>/^web_hot/.test(m.style)),feed=modules.find(m=>/^web_feed/.test(m.style));
+      const items=(await Promise.all((banner?.items||[]).map(x=>convert(x,true)))).filter(Boolean);
+      const recommendations=(await Promise.all(flatten([...hot.flatMap(m=>m.items||[]),...(feed?.items||[])]).map(x=>convert(x)))).filter(Boolean);
+      return {items,recommendations,cursor:feed?.coursor,hasMore:bool(feed?.has_next)===true};
+    },
+    async channelFeed(p) {
+      const name=({movie:'movie',drama:'tv',anime:'anime',doc:'documentary',variety:'variety'})[p.kind]||invalid('kind');
+      const d=await get('/pgc/page/web/'+(p.kind==='anime'?'v3/feed':'feed'),{name,coursor:input(String(p.cursor),'cursor',2048),new_cursor_status:true});
+      const flatten=items=>items.flatMap(x=>x.sub_items?flatten(x.sub_items):[x]);
+      return {...list(flatten(array(d?.items,'频道推荐')),x=>({...seasonCard(x,p.kind),wide:https(x.hover?.img)||https(x.cover),desc:text(x.evaluate||x.sub_title)})),cursor:d.coursor,hasMore:bool(d.has_next)===true};
     },
     async catalogOptions(p) {
       const d = await get('/pgc/season/index/condition', {season_type: seasonType(p.kind), type: 1});
@@ -229,7 +308,15 @@
       const d = await get('/x/web-interface/view', videoId(p));
       const v = videoCard(d || {});
       if (!v.id) malformed('投稿编号');
-      return {...v, pages: array(d.pages, '分P列表').map(s => ({cid: id(s.cid), page: num(s.page), title: text(s.part), duration: duration(s.duration)}))};
+      return {...v, pages: array(d.pages, '分P列表').map(s => ({cid: id(s.cid), page: num(s.page), title: text(s.part), duration: duration(s.duration),cover:https(s.first_frame)}))};
+    },
+    async videoShot(p) {
+      const d=await get('/x/player/videoshot',{...videoId(p),cid:reqId(p.cid,'cid'),index:1});
+      const columns=num(d?.img_x_len),rows=num(d?.img_y_len);
+      if(!Number.isInteger(columns)||columns<1||columns>100||!Number.isInteger(rows)||rows<1||rows>100)malformed('预览网格');
+      const images=array(d?.image,'预览图片').map(https);
+      if(!images.length||images.some(u=>!u))malformed('预览图片');
+      return {images,columns,rows,times:(Array.isArray(d.index)?d.index:[]).map(t=>Math.max(0,num(t)))};
     },
     async season(p) {
       const d = await get('/pgc/view/web/season', p.epId ? {ep_id: reqId(p.epId, 'epId')} : {season_id: reqId(p.seasonId, 'seasonId')});
@@ -253,7 +340,7 @@
     },
     async search(p) {
       const i = page(p);
-      const parse = {video: videoCard, media_bangumi: x => seasonCard(x, 'anime'), media_ft: x => seasonCard(x),
+      const parse = {video: x => (!x.type || x.type==='video') ? videoCard(x) : null, media_bangumi: x => seasonCard(x, 'anime'), media_ft: x => seasonCard(x),
         bili_user: authorCard, live_room: roomCard};
       const t = p.type || 'video';
       if (!Object.hasOwn(parse, t)) invalid('type');
@@ -291,8 +378,8 @@
         return list(d?.recommend_room_list, x => roomCard({...x, live_status: x.live_status ?? 1}));
       }
       const i = page(p);
-      const d = await live('/xlive/web-interface/v1/second/getList', {platform: 'web', parent_area_id: p.parentAreaId ?? 0,
-        area_id: p.areaId ?? 0, sort_type: 'online', page: i, page_size: PAGE_SIZE});
+      const d = await live('/room/v3/area/getRoomList', {parent_area_id:p.parentAreaId ?? 0,
+        area_id:p.areaId ?? 0, sort_type:'online', page_size:PAGE_SIZE, page:i});
       return list(d?.list, x => roomCard({...x, live_status: x.live_status ?? 1}), i, bool(d?.has_more), d?.count);
     },
     async liveRoom(p) {
@@ -352,7 +439,18 @@
     const original = x.orig && depth < 1 ? postCard(x.orig, depth + 1) : null;
     const title = text(opus?.title || article?.title || target?.title || dyn.topic?.name || desc || original?.title || major.none?.tips || author.name);
     return {id: id(x.id_str), kind: 'post', postType, title, desc, images, artist: text(author.name), mid: id(author.mid),
-      face: https(author.face), published: num(author.pub_ts), target: target?.id ? target : null, original};
+      face: https(author.face), published: num(author.pub_ts), target: target?.id ? target : null, original,
+      commentId:id(x.basic?.comment_id_str),commentType:num(x.basic?.comment_type),commentCount:num(m.module_stat?.comment?.count)};
+  }
+  function replyCard(x) {
+    const member=x.member || {}, content=x.content || {};
+    return {id:id(x.rpid_str || x.rpid),mid:id(member.mid),author:text(member.uname),face:https(member.avatar),
+      message:text(content.message),published:num(x.ctime),likes:num(x.like),count:num(x.rcount),
+      images:(content.pictures || []).map(p=>https(p.img_src)).filter(Boolean),
+      replies:(x.replies || []).map(y=>replyCard({...y,replies:[]}))};
+  }
+  function replyCards(value) {
+    return array(value,'评论列表').filter(x=>x&&typeof x==='object').map(replyCard).filter(x=>x.id);
   }
   function historyCard(x) {
     const h = x.history || {}, biz = h.business;
@@ -387,6 +485,19 @@
       if (!d?.item) malformed('动态');
       return postCard(d.item);
     },
+    async comments(p) {
+      const d=await get('/x/v2/reply/wbi/main',{oid:reqId(p.oid,'oid'),type:reqId(p.type,'type'),mode:3,
+        pagination_str:JSON.stringify({offset:p.cursor?input(p.cursor,'cursor',8192):''}),web_location:'333.1365'});
+      const items=replyCards([...(d.top_replies || []),...(d.replies || [])]);
+      const unique=[...new Map(items.map(x=>[x.id,x])).values()];
+      const next=d.cursor?.pagination_reply?.next_offset;
+      return {items:unique,total:num(d.cursor?.all_count),next:!d.cursor?.is_end && next && next!=='no-next-offset'?String(next):null};
+    },
+    async commentReplies(p) {
+      const i=page(p);
+      const d=await get('/x/v2/reply/reply',{oid:reqId(p.oid,'oid'),type:reqId(p.type,'type'),root:reqId(p.root,'root'),pn:i,ps:10});
+      return {items:replyCards(d.replies || []),total:num(d.page?.count),next:i*10<num(d.page?.count)?i+1:null};
+    },
     async author(p) {
       const d = await get('/x/web-interface/card', {mid: reqId(p.mid, 'mid')});
       if (!d?.card?.mid) malformed('作者名片');
@@ -394,7 +505,7 @@
     },
     async authorVideos(p) {
       const i = page(p);
-      const d = await get('/x/space/wbi/arc/search', {mid: reqId(p.mid, 'mid'), pn: i, ps: PAGE_SIZE, order: 'pubdate'});
+      const d = await get('/x/space/wbi/arc/search', {mid: reqId(p.mid, 'mid'), pn: i, ps: PAGE_SIZE, order: 'pubdate',platform:'web',order_avoided:true,web_location:'333.1387'});
       return list(d?.list?.vlist, videoCard, i, null, d?.page?.count);
     },
     async follows(p) {
@@ -402,7 +513,10 @@
       const d = await get('/x/relation/followings', {vmid: await userId(p.mid), pn: i, ps: PAGE_SIZE, order: 'desc'});
       return list(d?.list ?? (d?.total === 0 ? [] : undefined), authorCard, i, null, d?.total);
     },
-    async likes(p) { return list(await get('/x/space/like/video', {vmid: await userId(p.mid)}), videoCard); },
+    async likes(p) {
+      const d=await get('/x/space/like/video', {vmid: await userId(p.mid)});
+      return list(Array.isArray(d)?d:d?.list, videoCard);
+    },
     async history(p) {
       const c = p.cursor || {};
       const d = await get('/x/web-interface/history/cursor', {ps: PAGE_SIZE, max: c.max, business: c.business, view_at: c.view_at});

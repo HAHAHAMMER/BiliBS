@@ -18,9 +18,9 @@ const documentElement = {
 const document={documentElement,body:node(),activeElement:node(),getElementById(k){if(!elements.has(k))elements.set(k,node());return elements.get(k)},
   querySelector(){return null},querySelectorAll(){return []},addEventListener(){}};
 const window={BS_MODE:'online',BS_SEARCH_WORDS:{'音乐':'yinyue yy'},addEventListener(){}};
-const box={window,document,URL,URLSearchParams,CSS:{escape:x=>x},structuredClone,Date,console,innerWidth:viewport.width,innerHeight:viewport.height,
+const box={window,document,URL,URLSearchParams,CSS:{escape:x=>x},structuredClone,Date,console,IntersectionObserver:class {observe(){} unobserve(){} disconnect(){}},innerWidth:viewport.width,innerHeight:viewport.height,
   history:{replaceState(){},pushState(){}},localStorage:{getItem(){return null},setItem(){}},setInterval(){},addEventListener(){},
-  setTimeout,clearTimeout,clearInterval,queueMicrotask,requestAnimationFrame(){},location:{href:'https://app.invalid/'}};
+  setTimeout(fn,ms,...args){const timer=setTimeout(fn,ms,...args);if(ms>60000)timer.unref();return timer},clearTimeout,clearInterval,queueMicrotask,requestAnimationFrame(){},location:{href:'https://app.invalid/'}};
 vm.createContext(box);
 vm.runInContext(src('verification/discovery_fixture.js'),box);
 const hooks=`
@@ -49,8 +49,8 @@ async function run(){
   await open(br('home','rec'));has('推荐第1批');has('data-k="hero-primary"');
   has('test-art.png@120w_90h.webp');lacks('重复稿件');
   x.dispatch('refresh','');await settle();has('推荐第2批');
-  await open(br('home','hot'));has('本周投稿');has('本周刊');has('热门投稿');x.dispatch('dcPage','["hot",2]');await settle();has('>21<');
-  for(const cat of x.allCats){await open(br('home','zones',{cat}));has('data-row="zoneVideo0"');if(cat==='旅游')has('旅游主题搜索');else has('分区排行榜')}
+  await open(br('home','hot'));has('本周投稿');has('本周刊');has('热门投稿');lacks('data-act="dcPage"');
+  for(const cat of x.allCats){await open(br('home','zones',{cat}));has('data-row="zoneVideo0"');lacks('分区排行榜')}
   await open(br('home','live',{area:'following'}));has('登录查看关注的直播');
   await open(br('home','live',{area:'game'}));has('房间86');has('直播中');
   x.dispatch('room','87');assert.deepEqual([...x.args()].slice(0,2),['87',0]);assert.equal(x.args()[2].room,'87');
@@ -59,7 +59,12 @@ async function run(){
     for(const [sub] of subs){
       await open(br('cinema',kind,{sectionByMode:{[kind]:sub}}));
       has('class="channelBrowser"');
-      if(sub==='mine')has('登录查看个人片单');else has('class="subWork"');
+      if(sub==='mine')has('登录查看个人片单');else if(kind==='commentary'){
+        has('cinemaLibrarySidebar');has('cinemaLibraryResults');has('class="subWork"');lacks('class="cinScene');lacks('class="cinRail');
+      }else if(sub==='rec'){
+        const picks=ids().filter(k=>k.startsWith('film-')).map(k=>k.slice(5));
+        assert(picks.length<=6);for(const id of picks)lacks('data-k="subwork-'+id+'"');
+      }else has('class="subWork"');
       if(sub==='cn')has('地区1');if(sub==='overseas')has('地区2');
       if(sub==='nature')has('类型17');if(sub==='music')has('类型15');
     }
@@ -84,7 +89,7 @@ async function run(){
     window.testCatalogDown=false;x.dispatch('dcRetry',x.html().match(/data-act="dcRetry" data-id="([^"]+)"/)[1]);
     await settle();lacks('更新不可用');has('作品乙100');
   } finally { Date.now=originalNow;window.testCatalogDown=false; }
-  await open(pg('search',{q:'yy'}));has('热词');has('音乐');has('osk-A');has('osk-9');
+  await open(pg('search',{q:'yy'}));has('联想搜索');has('音乐');has('osk-A');has('osk-9');
   for(const [tab,t] of Object.entries({video:'普通 totalrank 1',anime:'番剧命中',film:'影视命中',person:'UP命中',room:'房间86'})){await open(results('普通',tab));has(t)}
   await open(results('普通','video','最多播放'));has('普通 click 1');
   x.dispatch('dcPage',JSON.stringify(['result-video-最多播放',2]));await settle();has('普通 click 2');

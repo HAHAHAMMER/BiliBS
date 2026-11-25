@@ -52,7 +52,7 @@
     source=canonical(source);
     const target=source.slice('https://'.length);
     if (!source.startsWith('https://') || target.length>1024 || target.includes('..') ||
-        !/^i[012]\.hdslb\.com\/bfs\/(?:[A-Za-z0-9_-]+\/)+[A-Za-z0-9_.-]+\.(?:jpe?g|png|webp|gif|avif)(?:@[A-Za-z0-9_.!-]+)?$/i.test(target)) return '';
+        !/^(?:(?:i[012]\.hdslb\.com|archive\.biliimg\.com)\/bfs\/(?:[A-Za-z0-9_-]+\/)+|bimp\.hdslb\.com\/videoshotpv(?:hd|sd)boss\/)[A-Za-z0-9_.-]+\.(?:jpe?g|png|webp|gif|avif)(?:@[A-Za-z0-9_.!-]+)?$/i.test(target)) return '';
     return prefix+target;
   }
   global.BSTransport = Object.freeze({

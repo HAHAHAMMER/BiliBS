@@ -30,7 +30,7 @@ const seasons=Array.from({length:19},(_,i)=>({id:String(700+i),seasonId:String(7
 const detail=id=>({...seasons.find(x=>x.id===id),following:true,episodes:[1,2,3].map((n)=>({title:String(n),epId:id+n,cid:id+n+'0',aid:'27'}))});
 const folders=[{id:'32',folderId:'32',title:'测试收藏夹',count:1,selected:false}];
 const history=[{...seasons[0],kid:'pgc_700',page:1,epId:'7002',cid:'70020',viewAt:200,duration:120,progress:7},{...seasons[0],kid:'pgc_700',page:1,epId:'7001',cid:'70010',viewAt:100,duration:120,progress:-1}];
-const post={id:'99',kind:'post',postType:'image',title:'一条图文',desc:'完整的正文',artist:'测试作者',mid:'11',images:[],published:100};
+const post={id:'99',kind:'post',postType:'image',title:'一条图文',desc:'完整的正文',artist:'测试作者',mid:'11',images:[],published:100,commentId:'991',commentType:17,commentCount:3};
 const result=items=>({items,next:null,total:items.length});
 Object.assign(t,{
   login(id){uid=id;return BSPersonal.refresh();},
@@ -48,7 +48,7 @@ window.BSApi={async call(op,p={}){
   if(op==='nav')return {loggedIn:!!uid,mid:uid,name:uid==='111'?'测试用户甲':'测试用户乙'};
   if(op==='logout'){uid='';return {ok:true};}
   if(op==='history')return result(uid==='111'?history:[]);
-  if(op==='shelf')return result(p.kind==='anime'&&uid==='111'?seasons:[]);
+  if(op==='shelf')return result(uid==='111'?(p.kind==='anime'?seasons:seasons.slice(0,3).map((x,i)=>({...x,id:String(800+i),seasonId:String(800+i),kind:'drama'}))):[]);
   if(op==='season')return detail(String(p.seasonId));
   if(op==='folders')return result(uid==='111'?folders.map(x=>({...x,title:x.title})):[]);
   if(op==='folder'||op==='authorVideos')return result([video]);
@@ -58,7 +58,11 @@ window.BSApi={async call(op,p={}){
   if(op==='author')return person;
   if(op==='authorLive')return result([]);
   if(op==='feed')return result([post]);
-  if(op==='post')return post;
+  if(op==='post' && p.id==='101')return {...post,id:'101',desc:'转发说明',original:{...post,id:'199',desc:'转发原文'}};
+  if(op==='post')return p.id==='100'?{...post,id:'100',desc:'长正文测试。'.repeat(500),commentId:'992'}:post;
+  if(op==='comments'&&p.oid==='992')return {items:[{id:'701',author:'读者',message:'长评论测试。'.repeat(400),count:0,replies:[]}],next:null};
+  if(op==='comments')return {items:[{id:p.cursor?'502':'501',author:'读者',message:p.cursor?'第二批评论':'第一批评论',count:1,replies:[]}],next:p.cursor?null:'second',total:3};
+  if(op==='commentReplies')return {items:[{id:'601',author:'另一位读者',message:'楼中楼回复',count:0,replies:[]}],next:null};
   if(op==='relation')return {liked:t.liked,following:false};
   if(op==='video')return video;
   if(op==='like'||op==='setLater'||op==='setFavorite'||op==='follow'||op==='clearHistory'||op==='createFolder'){
@@ -79,11 +83,16 @@ TEST_HOOK = """
 window.accountTest.open=(name,props)=>page(name,props);
 window.accountTest.root=rootTo;
 window.accountTest.route=()=>({...current()});
+window.accountTest.repaint=()=>redraw(current().focus);
 window.accountTest.seedLocal=()=>{const w=window.BSDiscovery.register({id:'700',seasonId:'700',title:'本机历史作品',kind:'anime'});progress={'700:1':{w,t:15,d:180,ep:1,recent:10,epId:'7001',cid:'70010',done:false}};save('history',progress);};
 window.accountTest.observePlay=()=>{startWatch=(id,ep,opts)=>window.accountTest.played={id,ep,...opts};};
 """
 
 def decode_qr(image_data):
+    if os.name=='nt':
+        from pyzbar.pyzbar import decode
+        symbols=decode(Image.open(BytesIO(image_data)))
+        return symbols[0].data.decode() if symbols else ''
     lib = CDLL(find_library('zbar') or 'libzbar.so.0')
     def func(name, args, ret):
         f = getattr(lib, 'zbar_' + name)
@@ -117,7 +126,7 @@ def run():
         checks.append(name)
     try:
         with sync_playwright() as pw:
-            br=pw.chromium.launch(executable_path=os.environ.get('BILIBS_CHROME','/usr/bin/chromium'),args=['--no-sandbox','--single-process','--no-zygote','--disable-gpu','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required'])
+            br=pw.chromium.launch(executable_path=os.environ.get('BILIBS_CHROME','/usr/bin/chromium'),args=['--no-sandbox',*([] if os.name=='nt' else ['--single-process','--no-zygote']),'--disable-gpu','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required'])
             pg=br.new_page(viewport={'width':1440,'height':810})
             pg.set_default_timeout(6500)
             pg.on('pageerror',lambda e:errors.append(str(e)))
@@ -194,11 +203,61 @@ def run():
             check('点赞列表直播放',key('media-BV1xx411c7mD').get_attribute('data-act')=='play')
             pg.evaluate("accountTest.root('feed')");key('feedTab-post').focus();key('post-99').click()
             pg.wait_for_function("document.querySelector('#view').textContent.includes('完整的正文')")
+            pg.wait_for_function("document.querySelector('.postComments').textContent.includes('第一批评论')")
+            check('动态作者信息保持在正文卡片内',pg.locator('.postByline').evaluate('n=>n.getBoundingClientRect().top>=n.closest(".postStory").getBoundingClientRect().top'))
+            check('动态评论只读且无输入框',not pg.locator('.postLayout textarea,.postLayout input,.postLayout [contenteditable=true]').count())
+            key('post-body-99').focus();pg.keyboard.press('ArrowRight')
+            check('正文向右可到评论',pg.evaluate("document.activeElement.dataset.k==='reply-501'"))
+            key('thread-501').click()
+            pg.wait_for_function("document.querySelector('.replyChildren').textContent.includes('楼中楼回复')")
+            key('more-comments').click()
+            pg.wait_for_function("document.querySelector('.postComments').textContent.includes('第二批评论')")
+            check('评论加载后保留首批内容',pg.locator('[data-k=reply-501]').count()==1)
+            check('加载后焦点进入新增评论',pg.evaluate("document.activeElement.dataset.k==='reply-502'"))
+            pg.evaluate("accountTest.open('post',{id:'100'})")
+            key('post-body-100').wait_for()
+            pg.wait_for_function("(()=>{const n=document.querySelector('[data-k=post-body-100]');return n&&n.scrollHeight>n.clientHeight})()")
+            key('post-body-100').focus();pg.keyboard.press('ArrowDown')
+            check('长正文可通过遥控键内部滚动',key('post-body-100').evaluate('n=>n.scrollTop')>0)
+            pg.evaluate('accountTest.repaint()')
+            check('异步重绘保留正文阅读位置',key('post-body-100').evaluate('n=>n.scrollTop')>0)
+            pg.keyboard.press('ArrowUp')
+            check('正文滚动到顶部仍可继续导航',key('post-body-100').evaluate('n=>n.scrollTop')==0)
+            pg.wait_for_function("(()=>{const n=document.querySelector('[data-k=reply-701]');return n&&n.scrollHeight>n.clientHeight})()")
+            key('reply-701').focus();pg.keyboard.press('ArrowDown')
+            check('长评论可通过遥控键内部滚动',key('reply-701').evaluate('n=>n.scrollTop')>0)
+            pg.evaluate("accountTest.open('post',{id:'101'})")
+            key('post-body-101').wait_for();key('post-body-101').focus();pg.keyboard.press('ArrowDown')
+            check('转发原文作者可经下键到达',pg.evaluate("document.activeElement.dataset.k==='post-author-199'"))
+            pg.keyboard.press('ArrowDown')
+            check('转发原文正文可经下键到达',pg.evaluate("document.activeElement.dataset.k==='post-body-199'"))
+            pg.evaluate("accountTest.open('post',{id:'99'})")
+            key('post-author-99').wait_for()
+
             check('图文卡保留所属作者',key('post-author-99').get_attribute('data-id')=='11')
             key('post-author-99').click();key('uploads-BV1xx411c7mD').wait_for()
+            check('作者空间初始焦点在投稿',pg.evaluate("document.activeElement.dataset.k==='authorTab-video'"))
             key('authorTab-live').focus()
             pg.wait_for_function("document.querySelector('#view').textContent.includes('暂无直播间')")
             check('作者资料与空直播选项可用',key('follow-toggle').is_visible())
+            pg.evaluate("accountTest.open('shelf',{filter:'anime'})")
+            pg.locator('.shelfCell').first.wait_for()
+            key('shelfTab-anime').focus()
+            check('片单导航聚焦时全部保持竖版',pg.locator('.shelfCell.expanded').count()==0)
+            cell=pg.locator('.shelfCell .coverKey').first;cell.focus()
+            check('只有当前聚焦作品展开',pg.locator('.shelfCell.expanded').count()==1)
+            key('shelfTab-anime').focus()
+            check('离开作品即收起横版',pg.locator('.shelfCell.expanded').count()==0)
+            key('shelfTab-drama').focus()
+            pg.locator('.shelfCell').first.wait_for()
+            key('shelfTab-drama').focus()
+            check('追剧导航聚焦时也保持竖版',pg.locator('.shelfCell.expanded').count()==0)
+            pg.locator('.shelfCell .coverKey').first.focus()
+            check('追剧只有聚焦作品展开',pg.locator('.shelfCell.expanded').count()==1)
+            key('shelfTab-drama').focus()
+            check('追剧焦点离开后收起',pg.locator('.shelfCell.expanded').count()==0)
+
+
             pg.evaluate("accountTest.root('mine');accountTest.open('account')")
             key('account-action').click();key('safe').click()
             pg.wait_for_function("document.querySelector('#layer').hidden")
@@ -241,7 +300,7 @@ def live_qr():
     try:
         with sync_playwright() as pw:
             br=pw.chromium.launch(executable_path=os.environ.get('BILIBS_CHROME','/usr/bin/chromium'),
-                                  args=['--no-sandbox','--single-process','--no-zygote','--disable-gpu','--disable-dev-shm-usage'])
+                                  args=['--no-sandbox',*([] if os.name=='nt' else ['--single-process','--no-zygote']),'--disable-gpu','--disable-dev-shm-usage'])
             pg=br.new_page(viewport={'width':1440,'height':810})
             pg.set_default_timeout(25000)
             result['browser']=br.version

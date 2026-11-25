@@ -38,6 +38,8 @@ def main():
             current.wait_for()
             assert pg.evaluate('window.BS_MODE')=='online'
             assert pg.evaluate('document.activeElement.dataset.k')=='set-avDemo'
+            pg.keyboard.press('Escape')
+            assert pg.evaluate('document.activeElement.dataset.k')=='sg-音视频进阶'
             pg.keyboard.press('Escape');pg.locator('[data-k="mine-guide"]').wait_for()
             click('mine-guide');click('status-demo');click('scenario-region-wall')
             pg.wait_for_url('**/*example=region-wall*')

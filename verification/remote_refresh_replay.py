@@ -133,6 +133,9 @@ class RemoteTests(unittest.TestCase):
         self.focused("rec-BVNEW1")
         self.key("Enter")
         self.wait("history.state.pages.at(-1).id==='BVNEW1' && !document.querySelector('#player').hidden")
+        self.page.locator('#mediaError:visible').wait_for()
+        self.key("Escape")
+        self.wait("document.querySelector('#player').classList.contains('quiet') && history.state.pages.at(-1).id==='BVNEW1'")
         self.key("Escape")
         self.focused("rec-BVNEW1")
 
@@ -161,6 +164,8 @@ class RemoteTests(unittest.TestCase):
     def test_refresh_after_leaving(self):
         self.home()
         self.enter_refresh()
+        self.key("Escape")
+        self.focused("homeTab-rec")
         self.key("Escape")
         self.focused("nav-home")
         self.key("ArrowRight")

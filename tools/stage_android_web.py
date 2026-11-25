@@ -13,7 +13,7 @@ def stage(directory):
         if source.is_dir():
             shutil.copytree(source, directory / name, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns('node_modules', '__pycache__', '*.map'))
-    (directory / 'src/runtime.js').write_text(assemble(), encoding='utf-8')
+    (directory / 'src/runtime.js').write_bytes(assemble().encode('utf-8'))
 
 
 if __name__ == '__main__':

@@ -31,6 +31,7 @@ def main():
         ('edge-cases',[node,'verification/policy.cjs']),
         ('services',[node,'verification/service_contract.cjs']),
         ('transport',[py,'verification/transport_check.py']),
+        ('native-image-stream',[py,'verification/native_image_stream_check.py']),
         ('discovery-routes',[node,'verification/discovery_routes.cjs']),
         ('discovery-ui',[py,'verification/discovery_check.py']),
         ('remote-refresh-replay',[py,'verification/remote_refresh_replay.py']),

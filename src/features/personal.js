@@ -108,7 +108,7 @@ if (bsOnline) {
     const more = append ? r.more : null;
     r.busy = true; r.error = '';
     const params = {...r.params};
-    if (more != null) params[r.op === 'feed' ? 'offset' : r.op === 'history' ? 'cursor' : 'page'] = more;
+    if (more != null) params[r.op === 'feed' ? 'offset' : ['history','comments'].includes(r.op) ? 'cursor' : 'page'] = more;
     try {
       const result = await api(r.op, params);
       if (generation !== epoch || cache.get(r.key) !== r) return;
@@ -436,8 +436,8 @@ if (bsOnline) {
     }
     if (!qrSession || qrSession.route!==s) beginQr(s);
     const q=qrSession, ready=['waiting','scanned','confirmed'].includes(q.state);
-    const image=ready&&q.image?'<img alt="哔哩哔哩扫码登录二维码" src="'+esc(q.image)+'">':'<div style="width:214px;height:214px;display:grid;place-items:center">'+esc(q.state==='loading'?'正在取码':'请换码')+'</div>';
-    return wrap(top('扫码登录')+'<div class="pairBox"><div class="pairArt">'+image+'<strong>配对 '+pad(q.number)+'</strong></div><article><div class="tag">哔哩哔哩账号授权</div><h2>在手机上确认登录</h2><p>打开哔哩哔哩客户端，用扫一扫扫描左侧二维码。</p><p id="pair-status" role="status">'+esc(qrMessage(q))+'</p>'+b('pair-renew','pair','onlineRenew','','换一个码','secondary')+'</article></div>');
+    const image=ready&&q.image?'<img alt="哔哩哔哩扫码登录二维码" src="'+esc(q.image)+'">':'<div style="width:252px;height:252px;display:grid;place-items:center">'+esc(q.state==='loading'?'正在取码':'请换码')+'</div>';
+    return wrap(top('扫码登录')+'<div class="pairBox"><div class="pairArt">'+image+'</div><article><div class="tag">哔哩哔哩账号授权</div><h2>在手机上确认登录</h2><p>打开哔哩哔哩客户端，用扫一扫扫描左侧二维码。</p><p id="pair-status" role="status">'+esc(qrMessage(q))+'</p>'+b('pair-renew','pair','onlineRenew','','换一个码','secondary')+'</article></div>');
   };
   setInterval(()=>{const q=qrSession;if(q && activeQr(q) && ['waiting','scanned'].includes(q.state)){if(Date.now()>=q.until){expireQr(q);}else updateQrText(q);}},1000);
   addEventListener('pagehide',cancelQr);
@@ -593,6 +593,20 @@ if (bsOnline) {
     if(r.error || r.busy || canLoad&&r.more!=null) html=html.replace(/<\/div>$/,status(r,'读取下一批作品')+'</div>');
     return html;
   }
+  function syncShelfFocus() {
+    if(current().name!=='shelf')return;
+    const cell=document.activeElement?.closest('.shelfCell');
+    if(cell){updateGallery(cell.dataset.work);return;}
+    stopShelfPreview();
+    for(const row of view.querySelectorAll('.denseRow')){
+      row.style.gridTemplateColumns=shelfTracks(-1);
+      for(const item of row.children){
+        item.classList.remove('expanded');
+        item.querySelector('.coverKey')?.setAttribute('aria-pressed','false');
+      }
+    }
+  }
+  document.addEventListener('focusin',syncShelfFocus);
   libraryPage=function(s) {
     const name=s.name,title=name==='folder'?(foldersById.get(String(s.folder))?.title||'收藏夹'):labels[name];
     if(!signed)return wrap(top(title)+gate('登录查看'+title));
@@ -671,13 +685,36 @@ if (bsOnline) {
   };
   function postScreen(s) {
     const r=resource('post',{id:s.id}),p=r.value;
-    if(!p)return wrap(top('动态正文')+status(r));
+    if(!p)return wrap(status(r));
     function article(post) {
       const target=post.target?register(post.target):null;
-      const images=Array.isArray(post.images)?post.images.filter(x=>publicArt(x)).map(x=>paint('post',publicArt(x),post.title||'动态图片','articleArt')).join(''):'';
-      return (post.mid?b('post-author-'+post.id,'author','author',post.mid,byline(post),'creatorChip'):'')+(post.title&&post.title!==post.desc?'<h2>'+esc(post.title)+'</h2>':'')+'<p style="white-space:pre-wrap">'+esc(post.desc||'')+'</p>'+images+(target?b('post-open-'+post.id,'article','live'===target.kind?'room':target.kind==='video'?'play':'item',target.id,esc(target.title||'打开相关内容'),'cta'):'');
+      const images=(post.images || []).filter(x=>publicArt(x)).map((x,i)=>'<figure tabindex="0" data-k="post-image-'+post.id+'-'+i+'" data-row="postImage'+post.id+'-'+i+'">'+paint('post',publicArt(x),'动态图片','postPicture')+'</figure>').join('');
+      const date=post.published?new Date(post.published*1000).toLocaleString('zh-CN',{hour12:false}):'';
+      return '<header class="postByline">'+(post.mid?b('post-author-'+post.id,'postAuthor'+post.id,'author',post.mid,byline(post),'creatorChip'):'')+'<time>'+esc(date)+'</time></header>'+
+        (post.title&&post.title!==post.desc?'<h2>'+esc(post.title)+'</h2>':'')+
+        '<div class="postCopy" tabindex="0" data-k="post-body-'+post.id+'" data-row="postBody'+post.id+'"><p>'+esc(post.desc||'')+'</p></div>'+
+        (images?'<div class="postPictures">'+images+'</div>':'')+
+        (target?b('post-open-'+post.id,'postTarget'+post.id,'live'===target.kind?'room':target.kind==='video'?'play':'item',target.id,paint('post-target',publicArt(target.wide||target.cover),target.title,'postTargetArt')+'<strong>'+esc(target.title||'打开相关内容')+'</strong>','postTarget'):'');
     }
-    return wrap(top('动态正文')+'<article class="article">'+article(p)+(p.original?'<blockquote>'+article(p.original)+'</blockquote>':'')+'</article>');
+    const params={oid:p.commentId,type:p.commentType};
+    const comments=p.commentId&&p.commentType?resource('comments',params):null;
+    function comment(c,index,nested=false) {
+      const date=c.published?new Date(c.published*1000).toLocaleDateString('zh-CN'):'';
+      const images=(c.images || []).map(url=>paint('comment',publicArt(url),'评论图片','replyPicture')).join('');
+      const text='<div class="replyAuthor">'+faceIcon(c.author,publicArt(c.face),'avatar')+'<strong>'+esc(c.author||'用户')+'</strong></div><p>'+esc(c.message)+'</p>'+images+'<small>'+esc([date,c.likes?c.likes+' 赞':''].filter(Boolean).join(' · '))+'</small>';
+      let children='';
+      if(!nested && c.count){
+        const opened=s.commentRoot===c.id;
+        const replies=opened?resource('commentReplies',{...params,root:c.id}):null;
+        const list=opened?replies.items:c.replies || [];
+        children='<div class="replyChildren">'+list.map((x,i)=>comment(x,i,true)).join('')+
+          (replies?status(replies,'更多回复'):'')+b('thread-'+c.id,'commentThread'+index,'commentThread',c.id,opened?'收起回复':'查看 '+c.count+' 条回复','textBtn')+'</div>';
+      }
+      return '<article class="replyCard'+(nested?' nested':'')+'"><div tabindex="0" data-k="reply-'+c.id+'" data-row="'+(nested?'nestedReply':'reply')+c.id+'">'+text+'</div>'+children+'</article>';
+    }
+    const count=comments?.total??p.commentCount;
+    const body=comments?comments.items.map((c,i)=>comment(c,i)).join('')+(comments.ready&&!comments.items.length?empty('暂无评论'):'')+status(comments,'更多评论'):empty('该动态暂未提供评论区');
+    return wrap('<div class="postLayout" data-post="'+esc(s.id)+'"><article class="postStory">'+article(p)+(p.original?'<blockquote>'+article(p.original)+'</blockquote>':'')+'</article><aside class="postComments"><h2>评论'+(count?' <small>'+esc(count)+'</small>':'')+'</h2>'+body+'</aside></div>');
   }
   const baseSubpage=subPage;
   subPage=function(s){
@@ -686,11 +723,22 @@ if (bsOnline) {
     return baseSubpage(s);
   };
   const baseRender=render;
-  render=function(){if(qrSession && qrSession.route!==current())cancelQr();return baseRender();};
+  render=function(){
+    const s=current();
+    const reading=s.name==='post' && view.querySelector('.postLayout')?.dataset.post===String(s.id)
+      ? new Map([...view.querySelectorAll('.postCopy,.replyCard>[data-k]')].map(n=>[n.dataset.k,n.scrollTop])):null;
+    if(qrSession && qrSession.route!==s)cancelQr();
+    const result=baseRender();
+    if(reading)for(const node of view.querySelectorAll('.postCopy,.replyCard>[data-k]')){
+      if(reading.has(node.dataset.k))node.scrollTop=reading.get(node.dataset.k);
+    }
+    return result;
+  };
   const baseAfter=afterRender;
   afterRender=function(s) {
     if (qrSession && s!==qrSession.route) cancelQr();
     baseAfter(s);
+    if(s.name==='shelf')syncShelfFocus();
     if(firstShelfFocus) {
       const f=firstShelfFocus;
       if(s!==f.route || s.filter!==f.mode) firstShelfFocus=null;
@@ -777,13 +825,35 @@ if (bsOnline) {
     finally {if(epoch===generation)pendingWrites.delete(op);}
   }
   const baseDispatch=revisedDispatch;
+  const personalArrow=revisedArrow;
+  revisedArrow=function(s,el,key) {
+    if(s.name==='post'){
+      if(['ArrowDown','ArrowUp'].includes(key) && el.matches('.postCopy,.replyCard>[data-k]')){
+        const down=key==='ArrowDown';
+        if(down?el.scrollTop+el.clientHeight<el.scrollHeight-2:el.scrollTop>0){el.scrollTop+=down?120:-120;return true;}
+      }
+      if(key==='ArrowRight' && el.closest('.postStory'))return firstKey('.postComments [data-k]');
+      if(key==='ArrowLeft' && el.closest('.postComments'))return focus('post-body-'+s.id);
+    }
+    return personalArrow(s,el,key);
+  };
   revisedDispatch=function(a,id,s) {
+    if(a==='commentThread') {s.commentRoot=s.commentRoot===id?null:id;redraw('thread-'+id);return true;}
     if(a==='authRetry'){refreshAccount();redrawPersonal();return true;}
     if(a==='onlineRenew'){beginQr(s);redraw('pair-renew');return true;}
     if(a==='pairConfirm'||a==='renew')return true;
     if(a==='personalRetry'||a==='personalMore'){
       const r=cache.get(id);
-      if(r){request(r,a==='personalMore'||(r.ready&&r.more!=null));redrawPersonal();}
+      if(r){
+        const count=r.items.length,route=current(),key=document.activeElement?.dataset.k;
+        request(r,a==='personalMore'||(r.ready&&r.more!=null)).then(()=>{
+          if(['comments','commentReplies'].includes(r.op) && current()===route && route.focus===key && r.items.length>count){
+            const target='reply-'+r.items[count].id;
+            redraw(target);
+          }
+        });
+        redrawPersonal();
+      }
       return true;
     }
     if(a==='onlineFolder'){page('folder',{folder:id});return true;}

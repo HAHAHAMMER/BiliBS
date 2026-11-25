@@ -39,7 +39,7 @@
       const nav = document.getElementById('nav');
       if ((!nav || !nav.firstElementChild) && !window.BS_READY
           && !window.BS_EXAMPLE && !visible(document.getElementById('player'))) return true;
-      const homeTab = document.querySelector('[data-k="nav-home"]');
+      const homeTab = document.querySelector(window.BS_MODE==='online'?'#nav [aria-current="page"]':'[data-k="nav-home"]');
       const atHome = document.activeElement === homeTab
           && homeTab && homeTab.getAttribute('aria-current') === 'page';
       const blocked = [...document.querySelectorAll('[role="dialog"], #layer, #sheet')].some(visible);

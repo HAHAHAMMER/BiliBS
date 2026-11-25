@@ -50,22 +50,61 @@ async function main() {
   await check('recommend',{},[ok({item:[{...video,goto:'av'},{...video,goto:'ad'}]})],r=>{assert.equal(r.items.length,1);assert.equal(r.items[0].title,'样片 & 声音');});
   await check('popular',{},[ok({list:[video],no_more:true})],r=>assert.equal(r.next,null));
   await check('weekly',{},[ok({list:[{number:40}]}),ok({list:[video],config:{name:'第40期'}})],r=>assert.equal(r.number,'40'));
+  for (const number of [401,402]) await check('weekly',{knownIssue:{number:'400',mediaId:'4620078088'}},[
+    ok({list:[{number},{number:number-1}]}),ok({list:[video],config:{name:'第'+number+'期',media_id:number+1000}})
+  ],(r,p)=>{assert.equal(r.number,String(number));assert.equal(r.mediaId,String(number+1000));assert.equal(p.fields.get('number'),String(number));assert.equal(p.fields.get('web_location'),'333.934');});
+  const limited = packet({code:-352,message:'暂时不可用'});
+  const edition = {number:401, name:'第401期', media_id:61};
+  const collection = {info:{upper:{mid:412466388},title:'第401期每周必看',media_count:21},medias:[{...video,type:2}]};
+  await check('weekly',{},[ok({list:[edition]}),limited,ok({...collection,has_more:true}),ok(collection)],(r,p)=>{
+    assert.equal(r.number,'401'); assert.equal(r.mediaId,'61'); assert.equal(p.fields.get('pn'),'2');
+  });
+  await check('weekly',{knownIssue:{number:'401',mediaId:'61'}},[ok({list:[{number:401}]}),limited,ok(collection)],r=>assert.equal(r.number,'401'));
+  await expectFailure('weekly',{},[ok({list:[edition]}),limited,ok({...collection,info:{...collection.info,title:'第400期每周必看'}})],-352);
+  await expectFailure('weekly',{},[ok({list:[edition]}),limited,ok({...collection,info:{...collection.info,upper:{mid:1}}})],-352);
+  await expectFailure('weekly',{knownIssue:{number:'401',mediaId:'61'}},[ok({list:[{number:402}]}),limited],-352);
   await check('region',{rid:36},[ok({list:[video]})]);
+  await check('region',{rid:1010,page:2},[ok({archives:[{...video,author:video.owner,cover:video.pic}]})],(r,p)=>{
+    assert.equal(r.items[0].artist,'作者');assert.equal(r.next,3);assert.equal(p.fields.get('display_id'),'2');
+  });
+  await check('region',{rid:1010,page:3},[packet({code:62013,message:'没有更多内容'})],r=>assert.equal(r.next,null));
   await check('catalog',{kind:'doc',year:2024,page:2},[ok({list:[{...season,season_type:3}],has_next:1,total:50})],(r,p)=>{
     assert.equal(r.items[0].kind,'doc'); assert.equal(r.next,3); assert.equal(p.fields.get('release_date'),'[2024-01-01 00:00:00,2025-01-01 00:00:00)');
   });
   await check('catalog',{kind:'anime',year:2024},[ok({list:[season],has_next:0})],(r,p)=>assert.equal(p.fields.get('year'),'[2024,2025)'));
+  for(const kind of ['movie','anime','doc','variety'])await check('channelPage',{kind},[ok({modules:[
+    {style:'web_banner_v2',items:[{title:'官网横幅',cover:'//i0.hdslb.com/bfs/bangumi/banner.jpg',link:'https://www.bilibili.com/bangumi/play/ss19'},{title:'活动',link:'https://www.bilibili.com/blackboard/era/a.html'}]},
+    {style:'web_hot_v2',items:[{...season,title:'官网热播',hover:{img:'//i0.hdslb.com/bfs/archive/wide.jpg'}}]},
+    {style:'web_feed_v2',items:[{sub_items:[{...season,season_id:20,title:'官网推荐'}]}],coursor:29,has_next:true}
+  ]})],r=>{assert.equal(r.items.length,1);assert.equal(r.items[0].title,'官网横幅');assert.equal(r.recommendations[1].id,'20');assert.equal(r.hasMore,true)});
+  for(const kind of ['movie','anime'])await check('channelFeed',{kind,cursor:'29'},[ok({items:[{sub_items:[season]}],coursor:58,has_next:true})],r=>{assert.equal(r.items[0].id,'19');assert.equal(r.cursor,58)});
   await check('catalogOptions',{kind:'anime'},[ok({filter:[{field:'area',name:'地区',values:[{keyword:'2',name:'日本'}]}]})],r=>assert.deepEqual(r.items[0].options[0],{id:'2',title:'日本'}));
   for (const kind of ['anime','movie']) await check('ranking',{kind},[ok({list:[season]})]);
   await check('video',ids,[ok({...video,pages:[{cid:456,page:1,part:'原片',duration:60}]})],r=>assert.equal(r.pages[0].cid,'456'));
+  await check('videoShot',ids,[ok({img_x_len:10,img_y_len:10,img_x_size:0,img_y_size:0,image:['//bimp.hdslb.com/videoshotpvsdboss/456_a-0001.jpg'],index:[]})],(r,p)=>{
+    assert.equal(p.fields.get('index'),'1');assert.equal(p.fields.get('cid'),'456');assert.equal(r.columns,10);assert.equal(r.images[0],'https://bimp.hdslb.com/videoshotpvsdboss/456_a-0001.jpg');
+  });
+  await expectFailure('videoShot',ids,[ok({img_x_len:0,img_y_len:10,image:[]})],'BAD_RESPONSE');
+  await expectFailure('videoShot',{aid:123,cid:'invalid'},[],'INVALID_INPUT');
   await check('season',ids,[packet({code:0,result:{...season,episodes:[ep,{...ep,ep_id:112,section_type:1,badge:'预告'},{...ep,ep_id:113,is_view_hide:true}],user_status:{follow:1,progress:{last_ep_id:111,last_time:-1}}}})],r=>{
     assert.equal(r.episodes.length,1); assert.equal(r.extras[0].epId,'112'); assert.equal(r.resume.time,-1); assert.equal(r.episodes[0].duration,96); assert.equal(r.following,true);
   });
+  await check('season',ids,[packet({code:0,result:{...season,publish:{pub_time:'2026-11-22'},new_ep:{desc:'2000年09月05日上映'},episodes:[ep]}})],r=>assert.equal(r.year,'2000'));
   await check('related',ids,[ok([video])]); await check('seasonRelated',ids,[ok({season:[season]})]);
+  const reply={rpid_str:'501',member:{mid:'42',uname:'评论作者',avatar:'//i0.hdslb.com/face'},content:{message:'正文 <script>文本</script>'},rcount:1,replies:[]};
+  await check('comments',{oid:'991',type:17},[ok({top_replies:[reply],replies:[reply],cursor:{all_count:8,is_end:false,pagination_reply:{next_offset:'next-token'}}})],(r,p)=>{
+    assert.equal(r.items.length,1);assert.equal(r.items[0].message,'正文 <script>文本</script>');assert.equal(r.next,'next-token');assert.equal(p.fields.get('oid'),'991');
+  });
+  await check('comments',{oid:'991',type:17,cursor:'CAEa-next-token'},[ok({replies:[reply],cursor:{is_end:true}})],(r,p)=>{
+    assert.equal(JSON.parse(p.fields.get('pagination_str')).offset,'CAEa-next-token');assert.equal(r.next,null);
+  });
+  await check('commentReplies',{oid:'991',type:17,root:'501',page:2},[ok({replies:[reply],page:{count:21}})],r=>assert.equal(r.next,3));
+  await expectFailure('sendComment',{oid:'991',type:17,message:'禁止发送'},[],'UNAVAILABLE');
   await check('search',{keyword:'含 空格',type:'video'},[ok({result:[video],numPages:2,numResults:29})],(r,p)=>{
     assert.equal(p.fields.get('keyword'),'含 空格'); assert.equal(r.next,2);
   });
   await check('suggest',{keyword:'猫'},[packet({code:0,result:{tag:[{value:'猫咪'}]}})],r=>assert.equal(r.items[0].title,'猫咪'));
+  await check('search',{type:'video',keyword:'课程'},[ok({result:[{...video,type:'ketang'},video],numPages:1})],r=>assert.equal(r.items.length,1));
   await check('hotSearch',{},[ok({trending:{list:[{keyword:'热词'}]}})]);
   await check('liveAreas',{},[ok([{id:2,name:'游戏',list:[{id:50,parent_id:2,name:'综合'}]}])],r=>assert.equal(r.items[0].children[0].parentAreaId,'2'));
   await check('liveRooms',{},[ok({recommend_room_list:[room]})]);
@@ -86,6 +125,8 @@ async function main() {
   await check('author',ids,[ok({card:{mid:42,name:'作者'},following:false})],r=>assert.equal(r.following,false));
   await check('authorVideos',ids,[ok({list:{vlist:[video]},page:{count:1}})]);
   await check('follows',ids,[ok({list:[{mid:14,uname:'UP'}],total:1})]); await check('likes',ids,[ok([video])]);
+  await check('likes',ids,[ok({list:[video]})],r=>assert.equal(r.items[0].bvid,video.bvid));
+  await check('likes',ids,[ok({list:[]})],r=>assert.equal(r.items.length,0));
   await check('history',{},[ok({list:[{title:'视频',duration:100,progress:-1,history:{oid:123,bvid:video.bvid,cid:456,business:'archive'}}],
     cursor:{max:123,view_at:4444,business:'archive'}})],r=>{assert.equal(r.items[0].kid,'archive_123');assert.equal(r.items[0].progress,-1);assert.equal(r.next.max,123);});
   await check('later',{},[ok({list:[],count:0})]); await check('folders',ids,[ok({list:[fl],count:1})],r=>assert.equal(r.items[0].selected,true));
@@ -120,6 +161,11 @@ async function main() {
   await expectFailure('popular',{},[packet('<html>')],'BAD_RESPONSE');
   await expectFailure('video',{bvid:'invalid'},[],'INVALID_INPUT');
   await expectFailure('__proto__',{},[],'UNAVAILABLE');
+  // Request each supported public channel through the same policy. A denied HTTP response
+  // ends before DOM parsing; the browser integration checks rendered cards.
+  for(const rid of [1001,1002,1003,1004,1005,1007,1008,1009,1010,1012,1013,1014,1018,1020,1022,1024,1031]){
+    await expectFailure('region',{rid},[packet('',412),packet('',503)],503);
+  }
   assert.equal(observed.size,Object.values(policy.GET).flat().length+Object.values(policy.POST).flat().length);
   console.log('Passed production adapter contract checks on '+observed.size+' allowlisted method/path pairs.');
 }

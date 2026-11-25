@@ -14,7 +14,7 @@ const starters={anime:['46089','43164','41410','39462','21542','1733','26801','2
 const gallery={anime:0,drama:0};
 const allCats=['知识','科技','数码','影视','动画','游戏','音乐','生活','美食','舞蹈','体育运动','汽车','旅游','娱乐','动物','时尚','鬼畜','资讯','纪录片','综艺'];
 const homeFeed=['keys','pv'+data.clipIds['48416'],'coffee','orbit','terrain','pinball','cut','pv'+data.clipIds['46089'],'lake','steps','micro','cat',...Object.keys(V)].filter((x,i,a)=>V[x]&&a.indexOf(x)===i);
-const fresh=()=>({type:'browse',root:'home',filter:'rec',focus:'hero-primary',scroll:0});
+const fresh=()=>({type:'browse',root:'home',filter:'rec',focus:bsOnline?'nav-home':'hero-primary',scroll:0});
 let pages=[fresh()],scale=1,toastTimer,batch=0,restoring=false,overlay=null,countdown=null,queuedEpisode=null;
 const current=()=>pages.at(-1),base=()=>pages[0];
 const storagePrefix = bsOnline ? 'bilibs-v1-online-' : 'bilibs-ui-1-';
@@ -51,11 +51,11 @@ function hints(a,b){return '<span class="hint"><kbd>'+a+'</kbd>'+b+'</span>'}
 function pointerBack(label){return '<button type="button" tabindex="-1" class="hint footBack" data-act="back" aria-label="'+esc(label)+'"><kbd>Esc / 返回</kbd>'+esc(label)+'</button>'}
 
 function focus(k,reveal=true){const n=node(k);if(!n)return false;n.focus({preventScroll:true});if(reveal)bring(n);return true}
-function bring(n){if(!view.contains(n))return;alignStrip(n);const a=n.getBoundingClientRect(),b=view.getBoundingClientRect(),pad=9*scale;if(a.top<b.top+pad)view.scrollTop+=(a.top-b.top-pad)/scale;else if(a.bottom>b.bottom-pad)view.scrollTop+=(a.bottom-b.bottom+pad)/scale}
+function bring(n){if(!view.contains(n))return;if(bsOnline&&((current().type==='detail'&&n.dataset.row==='hero')||(current().type==='browse'&&current().root==='cinema'&&n.dataset.row==='filmRail'))){view.scrollTop=0;return}alignStrip(n);const pane=bsOnline&&n.closest('.cinemaLibraryResults')||view,a=n.getBoundingClientRect(),b=pane.getBoundingClientRect(),pad=9*scale;if(a.top<b.top+pad)pane.scrollTop+=(a.top-b.top-pad)/scale;else if(a.bottom>b.bottom-pad)pane.scrollTop+=(a.bottom-b.bottom+pad)/scale}
 
 function feature({w,kind='catalogFeature',tag,title,desc,source,scene,action='item',id,label='查看作品',extra='',meta=''}){
  const hero=scene==='hero',contained=scene==='small'||scene==='portrait';const cls='feature '+kind+(contained?' contained':'');const visual=paint('feature',source,title,'visual '+(hero?'approved':''));
- return '<article class="'+cls+'">'+visual+'<div class="featureText"><div class="tag">'+esc(tag)+'</div><h1 class="'+(title.length>15?'long':'')+'">'+esc(title)+'</h1><p>'+esc(desc)+'</p><div class="actions">'+btn('feature','hero',action,id,'cta',(action==='play'||action==='playWork'?'<i class="playIcon" aria-hidden="true"></i>':'')+esc(label)+(action==='item'?' <span class="arrow">↗</span>':''))+extra+(meta?'<span class="mini">'+esc(meta)+'</span>':'')+'</div></div></article>'
+ return '<article class="'+cls+'"'+(bsOnline?' style="--feature-art:url('+esc(source)+')"':'')+'>'+visual+'<div class="featureText"><div class="tag">'+esc(tag)+'</div><h1 class="'+(title.length>15?'long':'')+'">'+esc(title)+'</h1><p>'+esc(desc)+'</p><div class="actions">'+btn('feature','hero',action,id,'cta',(action==='play'||action==='playWork'?'<i class="playIcon" aria-hidden="true"></i>':'')+esc(label)+(action==='item'?' <span class="arrow">↗</span>':''))+extra+(meta?'<span class="mini">'+esc(meta)+'</span>':'')+'</div></div></article>'
 }
 function workMeta(w){return [types[w.kind],...(w.types||[]).slice(0,2),w.year].filter(Boolean).join(' · ')}
 function release(w){return (w.release||'').replace(/已完结[,，]\s*/,'已完结 · ').replace(/\s*\|\s*/g,' · ')}
@@ -82,40 +82,101 @@ function tileList(items,row='cards',cols=4,opt={}){
 function nav(){const s=current(),inRoot=s.type==='browse';$('nav').innerHTML=inRoot?Object.entries(roots).map(([k,label])=>btn('nav-'+k,'nav','nav',k,'tab',label,k===s.root?'aria-current="page"':'')).join(''):'<span class="crumb">'+esc(roots[base().root])+'　/　'+esc(s.type==='detail'?'作品详情':labels[s.name]||'片单')+'</span>';
  $('quick').innerHTML=!['search','results'].includes(s.name)?b('search-global','nav','search','','<i class="mag"></i> 搜索','searchQuick'):'';
 }
-function stash(){const s=current();if(s.type==='player'&&activeMedia&&video.readyState>=1){s.at=video.currentTime;s.restorePaused=video.paused&&!video.ended}const f=document.activeElement?.dataset.k;if(f&&!overlay)s.focus=f;if(s.type!=='player')s.scroll=view.scrollTop;if(s.name==='shelf')s.index=gallery[s.filter]}
+function stashScroll(s){s.scroll=view.scrollTop;const pane=bsOnline&&view.querySelector('.cinemaLibraryResults');if(pane){s.libraryScroll||={};s.libraryScroll[pane.dataset.scrollKey]=pane.scrollTop}}
+function stash(){const s=current();if(s.type==='player'&&activeMedia&&video.readyState>=1){s.at=video.currentTime;s.restorePaused=video.paused&&!video.ended}const f=document.activeElement?.dataset.k;if(f&&!overlay)s.focus=f;if(s.type!=='player')stashScroll(s);if(s.name==='shelf')s.index=gallery[s.filter]}
 function stamp(){history.replaceState({v:2,pages:structuredClone(pages)},'','')}
 function go(s){if(overlay){finishOverlay(()=>go(s));return}stash();stamp();pages.push({scroll:0,...s});history.pushState({v:2,pages:structuredClone(pages)},'','');render()}
 function page(name,props={}){go({type:'page',name,...(name==='search'?{focus:'osk-A'}:{}),...props})}
-function rootTo(root){if(!roots[root])return;pages=[{type:'browse',root,filter:branchDefaults[root],focus:'nav-'+root,scroll:0}];stamp();render()}
-function redraw(k,zero=false){const s=current();s.focus=k||document.activeElement?.dataset.k;s.scroll=zero?0:view.scrollTop;render()}
+const branchSelection=new Map();
+function rootTo(root){
+ if(!roots[root])return;
+ const old=base();
+ if(bsOnline && old.type==='browse'){
+  const {filter,cat,area,sectionByMode}=old;
+  branchSelection.set(old.root,{filter,cat,area,sectionByMode});
+ }
+ pages=[{type:'browse',root,filter:branchDefaults[root],...(bsOnline?branchSelection.get(root):{}),focus:'nav-'+root,scroll:0}];stamp();render()
+}
+function redraw(k,zero=false){const s=current();s.focus=k||document.activeElement?.dataset.k;stashScroll(s);if(zero)s.scroll=0;render()}
 function protect(name,props={}){if(signed)page(name,props);else page('login',{returnTarget:{name,props}})}
 function render(){stopShelfPreview();setTheme(prefs.theme);
  const s=current();document.body.dataset.surface=getSurface(s);if(s.type==='player'){renderWatch(s);return}stopWatch();player.hidden=true;$('shell').hidden=false;restoring=true;nav();
  document.body.classList.toggle('large',prefs.large);document.body.classList.toggle('reduced',prefs.reduced);
  view.innerHTML=s.type==='detail'?renderDetail(s):s.type==='page'?subPage(s):rootPage(s);
  const usable=[...view.querySelectorAll('[data-k]')].filter(n=>!n.disabled);view.scrollTop=s.scroll||0;
+ const library=bsOnline&&view.querySelector('.cinemaLibraryResults');if(library){view.scrollTop=0;library.scrollTop=s.libraryScroll?.[library.dataset.scrollKey]||0}
  let target=s.focus;if(s.name==='shelf'&&target?.startsWith('s-')&&!node(target))target='s-'+collection[s.filter][gallery[s.filter]];
+ if(bsOnline && !node(target)){
+   const selected=s.name==='author'?'authorTab-'+(s.tab||'video'):s.type==='browse'?(s.root==='home'?'homeTab-'+s.filter:s.root==='cinema'?'cinTab-'+s.filter:'nav-'+s.root):null;
+   if(node(selected))target=selected;
+ }
  if(!target||!node(target))target=usable[0]?.dataset.k||(s.type==='browse'?'nav-'+s.root:null);
  if(target)focus(target,false);if(view.contains(document.activeElement))bring(document.activeElement);
  const menuable=document.activeElement?.dataset.act==='play';$('hints').textContent=menuable?'方向键 移动　　确定 打开　　菜单键 更多':'方向键 移动　　确定 打开　　Esc 返回';$('footContext').textContent=s.root==='mine'?(signed?'体验账号':'游客模式'):'';
  restoring=false;afterRender(s)
 }
+// Resolve Back within this route before leaving its page stack.
+function focusParent(s,el){
+ if(!bsOnline || !el || s.type==='player')return false;
+ stashScroll(s);
+ const row=el.dataset.row, k=el.dataset.k;
+ if(s.name==='shelf' && gallery[s.filter]>=shelfPageSize){
+  stepGallery(-shelfPageSize);return true;
+ }
+ const pager=view.querySelector('[data-page-slot]');
+ if(pager && (!el.closest?.('.hotDuo section')||el.closest('.hotDuo section').contains(pager)) && s.dcPages?.[pager.dataset.pageSlot]>1){
+  const slot=pager.dataset.pageSlot, p=s.dcPages[slot];
+  s.dcPages[slot]=p-1;
+  const anchor=s.pageAnchors?.[slot]?.[p-1];
+  s.focus=anchor?.focus || 'page-'+slot+'-next';s.scroll=anchor?.scroll||0;
+  render();return true;
+ }
+ let parent;
+ if(s.type==='browse' && row!=='nav'){
+  if(s.root==='home'){
+   parent='homeTab-'+s.filter;
+   if(row==='homeTab')parent='nav-home';
+   else if(s.filter==='zones' && row!=='zones')parent='zone-'+s.cat;
+   else if(s.filter==='live' && row!=='area')parent='area-'+s.area;
+  }else if(s.root==='cinema'){
+   parent=row==='cinTab'?'nav-cinema':row==='filmRail'||row==='channelSub'?'cinTab-'+s.filter:'channelSub-'+(s.sectionByMode?.[s.filter]||cinSections[s.filter][0][0]);
+  }else if(s.root==='feed'){
+   parent=row==='authors'||k==='gate'?'nav-feed':row==='feedTab'?'creator-'+(s.creator||'all'):'feedTab-'+s.filter;
+  }else parent='nav-'+s.root;
+ }else if(s.type==='detail' && row!=='hero' && row!=='nav'){
+  parent=node('feature')?'feature':'collect';
+ }else if(s.name==='results'){
+  if(row!=='resultType')parent=s.tab==='video'&&row!=='sort'?'sort-'+s.sort:'resultType-'+s.tab;
+ }else if(s.name==='settings' && row?.startsWith('set'))parent='sg-'+s.group;
+ else if(s.name==='catalog' && row?.startsWith('works'))parent='order-'+s.order;
+ else if(s.name==='shelf' && row!=='shelfTab')parent='shelfTab-'+s.filter;
+ else if(s.name==='author' && row!=='authorTab' && row!=='authorHead')parent='authorTab-'+s.tab;
+ else if(s.name==='history' && row!=='historyOrigin')parent='historyOrigin-'+s.origin;
+ else if(s.name==='live' && row!=='area')parent='area-'+s.area;
+ if(!parent || parent===k || !node(parent))return false;
+ if(parent.startsWith('nav-'))view.scrollTop=0;
+ return focus(parent);
+}
 function back(){
  if(overlay){closeOverlay();return}if(countdown){cancelCountdown();return}
  const s=current(),k=document.activeElement?.dataset.k||'';
+ if(bsOnline&&s.type==='player'&&!player.classList.contains('quiet')&&!player.classList.contains('loading')){clearTimeout(hudTimer);player.classList.add('quiet');return}
+ if(focusParent(s,document.activeElement))return;
  if(s.name==='results'&&k.startsWith('hit-')){focus(s.tab==='video'?'sort-'+s.sort:'resultType-'+s.tab);return}
  if(s.name==='results'&&k.startsWith('sort-')){focus('resultType-'+s.tab);return}
  if(pages.length>1 || (!bsOnline && window.BS_EXAMPLE)){history.back();return}
- if(s.root!=='home'){rootTo('home');return}
+ if(s.root!=='home'){if(!bsOnline)rootTo('home');return}
  if(!k.startsWith('nav-')){view.scrollTop=0;focus('nav-home')}
 }
 addEventListener('popstate',e=>{
  if(overlay){onOverlayPop();return}
  if(!e.state?.v)return;const previous=current();const activeKey=document.activeElement?.dataset.k||'';
- if(previous.name==='results'&&e.state.pages.length<pages.length&&(activeKey.startsWith('hit-')||activeKey.startsWith('sort-'))){const dest=activeKey.startsWith('hit-')&&previous.tab==='video'?'sort-'+previous.sort:'resultType-'+previous.tab;previous.focus=dest;history.pushState({v:2,pages:structuredClone(pages)},'','');focus(dest);return}
+ if(bsOnline && e.state.pages.length<pages.length && focusParent(previous,document.activeElement)){
+ history.pushState({v:2,pages:structuredClone(pages)},'','');return}
+ if(!bsOnline&&previous.name==='results'&&e.state.pages.length<pages.length&&(activeKey.startsWith('hit-')||activeKey.startsWith('sort-'))){const dest=activeKey.startsWith('hit-')&&previous.tab==='video'?'sort-'+previous.sort:'resultType-'+previous.tab;previous.focus=dest;history.pushState({v:2,pages:structuredClone(pages)},'','');focus(dest);return}
  pages=e.state.pages;const s=current();if(queuedEpisode==='unlock'&&s.type==='detail'){s.wall=null;queuedEpisode=null;stamp()}
  if(s.type==='detail'&&previous.type==='player'&&previous.id===s.id&&previous.ep){s.ep=previous.ep;if(s.focus?.startsWith('ep-'))s.focus='ep-'+s.ep}
- if(s.name==='results'&&(previous.type==='player'||previous.type==='detail'||['author','offlineRoom'].includes(previous.name))){
+ if(!bsOnline&&s.name==='results'&&(previous.type==='player'||previous.type==='detail'||['author','offlineRoom'].includes(previous.name))){
  s.focus=s.tab==='video'?'sort-'+s.sort:'resultType-'+s.tab;s.scroll=0}
  if(s.name==='shelf')gallery[s.filter]=s.index||0;render()
 });
@@ -292,7 +353,7 @@ function settingsScreen(s){s.group||='显示';let rows=[];
  else rows=[['account','账户管理'],['guide','遥控器与功能导览'],['about','关于 BiliBS'],['licenses','素材与组件说明']].map(([id,l],i)=>settingLine(id,i,'page',id,l,''));
  if(s.group==='显示')rows.unshift(settingLine('theme','Theme','themes','','界面背景',themes[prefs.theme]?.name||themes.ink.name));
  const sample=s.group==='显示'?'<div class="settingPreview"><i class="previewMotif"></i><span><small>当前背景</small><strong>'+esc(themes[prefs.theme]?.name||themes.ink.name)+'</strong></span></div>':'';return wrap(top('设置')+'<div class="settingSplit"><div class="settingNav">'+settingGroups.map((g,i)=>b('sg-'+g,'sg'+i,'settingGroup',g,g,'sideTab','aria-selected="'+(s.group===g)+'"')).join('')+'</div><section class="settingsPane"><h2>'+s.group+'</h2>'+sample+rows.join('')+'</section></div>')}
-function catsScreen(){const order=[...prefs.cats,...allCats.filter(k=>!prefs.cats.includes(k))];return wrap(top('分区管理','<small class="submeta">已显示 '+prefs.cats.length+' 个分区</small>')+'<div class="catList">'+order.map((k,i)=>'<div class="catEdit"><span>'+esc(k)+'</span>'+b('visible-'+k,'cat'+i,'catVisible',k,prefs.cats.includes(k)?'✓ 显示':'已隐藏','chip')+(prefs.cats.includes(k)&&prefs.cats.indexOf(k)>0?b('raise-'+k,'cat'+i,'raiseCat',k,'上移','textBtn'):'')+'</div>').join('')+'</div>')}
+function catsScreen(){const order=[...prefs.cats,...allCats.filter(k=>!prefs.cats.includes(k))];return wrap(top('分区管理','<small class="submeta">已显示 '+prefs.cats.length+' 个分区</small>')+'<div class="catList">'+order.map((k,i)=>'<div class="catEdit"><span>'+esc(k)+'</span>'+b('visible-'+k,'cat'+i,'catVisible',k,prefs.cats.includes(k)?'✓ 显示':'已隐藏','chip')+(prefs.cats.includes(k)&&(bsOnline||prefs.cats.indexOf(k)>0)?b('raise-'+k,'cat'+i,'raiseCat',k,'上移','textBtn'):'')+'</div>').join('')+'</div>')}
 function accountScreen(){return wrap(top('账户')+'<div class="accountPanel"><i class="profileIcon">'+(signed?'映':'客')+'</i><h2>'+(signed?'本机体验账号':'游客模式')+'</h2><p>'+(signed?'追番、收藏和关注会保存在当前浏览器。':'可以搜索、浏览和播放，也可以查看本机观看历史。')+'</p>'+b('account-action','account','accountAct','',signed?'退出体验账号':'登录体验账号','secondary')+'</div>')}
 function loginScreen(s){if(s.pair==null){s.pair=Math.floor(Math.random()*data.pair.length);s.exp=Date.now()+120000}const pair=data.pair[s.pair];return wrap(top('登录')+'<div class="pairBox"><div class="pairArt"><img src="'+pair[1]+'" alt="体验配对码"><strong>'+pair[0].slice(0,3)+'　'+pair[0].slice(3)+'</strong></div><article><div class="tag">电视端配对演示</div><h2>在手机上确认登录</h2><p>此码仅含本次体验编号。选择下方按钮可体验手机确认后的页面。</p><p id="expires"></p>'+b('pair-confirm','pair','pairConfirm','','模拟手机确认','cta')+b('pair-renew','pair','renew','','换一个码','textBtn')+'</article></div>')}
 function updatePair(){const s=current();if(s.name!=='login'||!$('expires'))return;const sec=Math.max(0,Math.ceil((s.exp-Date.now())/1000));$('expires').textContent=sec?'有效时间　'+clock(sec):'配对码已过期，请换一个码';const n=node('pair-confirm')||document.querySelector('[data-k="pair-confirm"]');if(n){if(!sec&&n===document.activeElement)focus('pair-renew');n.disabled=!sec}}
@@ -312,14 +373,15 @@ function openOverlay(kind,props={},nested=false){stopShelfPreview();
  const source=document.activeElement?.dataset.k||current().focus;
  if(!overlay){stash();stamp();history.pushState({v:2,pages:structuredClone(pages),modal:true},'','')}
  const anchor=overlay?.anchor||source,prior=nested&&overlay?{...overlay,remember:source}:null;
- overlay={kind,anchor,prior,...props};modal.hidden=false;$('shell').inert=true;player.inert=true;if(current().type==='player')wake(false);
- if(kind==='watch'&&props.mode==='episodes'){overlay.resumeMain=!video.paused&&!video.ended;overlay.playingKey=activeMedia;video.pause()}
+ const inline=bsOnline&&current().type==='player'&&kind==='watch'&&['episodes','queue'].includes(props.mode);
+ overlay={kind,anchor,prior,...props,inline};modal.hidden=false;$('shell').inert=true;player.inert=!inline;player.classList.toggle('withShelf',inline);if(current().type==='player')wake(false);
+ if(kind==='watch'&&props.mode==='episodes'&&!inline){overlay.resumeMain=!video.paused&&!video.ended;overlay.playingKey=activeMedia;video.pause()}
  drawOverlay()
 }
 function finishOverlay(fn=null){if(!overlay){if(fn)fn();return}afterClose=fn;layerLevelBack=false;history.back()}
 function closeOverlay(){if(!overlay)return;if(overlay.prior){const next=overlay.prior;overlay=next;drawOverlay(next.remember);return}finishOverlay()}
 function onOverlayPop(){stopEpisodePreview();const old=overlay;if(!afterClose&&old.prior&&!layerLevelBack){overlay=old.prior;history.pushState({v:2,pages:structuredClone(pages),modal:true},'','');drawOverlay(overlay.remember);return}
- overlay=null;setTheme(prefs.theme);modal.hidden=true;modal.innerHTML='';$('shell').inert=false;player.inert=false;layerLevelBack=false;
+ overlay=null;setTheme(prefs.theme);modal.hidden=true;modal.innerHTML='';$('shell').inert=false;player.inert=false;player.classList.remove('withShelf');layerLevelBack=false;
  if(old.anchor)focus(old.anchor,false);if(current().type==='player')wake();const fn=afterClose;afterClose=null;if(fn)fn();if(old.resumeMain&&current().type==='player'&&old.playingKey===activeMedia&&video.paused&&!video.ended)doPlay()}
 function completeOverlay(fn=()=>{}){layerLevelBack=true;afterClose=fn;history.back()}
 function drawer(title,desc,body,cls=''){return '<div class="scrim" data-act="dismiss"></div><section class="drawer '+cls+'" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><button type="button" class="closeX" tabindex="-1" data-act="dismiss" aria-label="关闭">×</button><h2>'+esc(title)+'</h2>'+(desc?'<p>'+esc(desc)+'</p>':'')+body+'</section>'}
@@ -339,7 +401,7 @@ function drawOverlay(target){stopEpisodePreview();const o=overlay;let title='',d
  if(o.kind==='keyboard'){title='遥控器键盘';desc='输入拼音、拼音首字母或数字，选择候选词或直接搜索。';cls='wideDrawer';const q=o.q||'',tokens=q.trim()?Object.keys(data.pinyin).filter(t=>matches(q,[t])).slice(0,4):['芙莉莲','机械键盘','山川观测','预告'];
  body='<div class="keyBuffer">'+esc(q||'输入关键词')+'</div><div class="candidates">'+tokens.map((t,i)=>op('kc-'+i,'candidates','keyCandidate',t,t)).join('')+'</div><div class="keyGrid">'+'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('').map((k,i)=>op('key-'+k,'keys'+Math.floor(i/9),'keyChar',k,k)).join('')+'</div><div class="keyActions">'+op('key-del','keyActions','keyDel','','删除')+op('key-clear','keyActions','keyClear','','清空')+op('key-go','keyActions','keyGo','','搜索')+'</div>';initial='key-A'}
  if(o.kind==='watch'){const p=watchPanel(o);({title,desc,body,initial,cls}=p)}
- modal.dataset.transport=current().type==='player'?'on':'off';modal.dataset.mode=o.mode||o.kind;modal.dataset.kind=o.kind;modal.innerHTML=drawer(title,desc,body,cls||'');const n=(target||initial?modal.querySelector('[data-k="'+CSS.escape(target||initial)+'"]'):null)||modal.querySelector('[data-k]');n?.focus({preventScroll:true});n?.scrollIntoView({block:'nearest'})
+ modal.dataset.transport=current().type==='player'?'on':'off';modal.dataset.mode=o.mode||o.kind;modal.dataset.kind=o.kind;modal.dataset.inline=String(!!o.inline);modal.innerHTML=drawer(title,desc,body,cls||'');if(o.inline){const panel=modal.querySelector('.drawer');panel.removeAttribute('aria-modal');panel.setAttribute('role','region')}const n=(target||initial?modal.querySelector('[data-k="'+CSS.escape(target||initial)+'"]'):null)||modal.querySelector('[data-k]');n?.focus({preventScroll:true});n?.scrollIntoView({block:'nearest',inline:'nearest'});if(bsOnline)window.BSEpisodeArt?.observe();
 }
 function setPreference(k,val){prefs[k]=val;speed=prefs.speed;commentsOn=prefs.dm;storePrefs();if(current().type==='player'){video.playbackRate=current().room?1:speed;if(['quality','codec','audio'].includes(k))changeSource();if(k==='fitMode')video.style.objectFit=val;updateControls();paintComments()}else redraw(current().focus)}
 function confirmDo(id){completeOverlay(()=>{if(id==='logout'){signed=false;save('signed',false)}
@@ -397,7 +459,7 @@ function dispatch(el){const {act:a,id,k,row}=el.dataset,s=current();
  if(a==='mediaLike'||a==='mediaLater'){if(needUser())return;const on=flip(a==='mediaLike'?profile.likes:profile.later,id);storeProfile();completeOverlay(()=>{updateBehind();notice(a==='mediaLike'?(on?'已点赞':'已取消点赞'):(on?'已加入稍后再看':'已移出稍后再看'))});return}
  if(a==='pref'){openOverlay('pref',{id});return}if(a==='setPref'){const x=overlay.id,v=prefOpts[x][Number(id)][0];completeOverlay(()=>setPreference(x,v));return}
  if(a==='catVisible'){if(prefs.cats.includes(id)&&prefs.cats.length===1){notice('至少保留一个分区');return}flip(prefs.cats,id);storePrefs();redraw(k);return}
- if(a==='raiseCat'){const pos=prefs.cats.indexOf(id);if(pos>0)[prefs.cats[pos-1],prefs.cats[pos]]=[id,prefs.cats[pos-1]];storePrefs();redraw('visible-'+id);return}
+ if(a==='raiseCat'){const pos=prefs.cats.indexOf(id);if(pos>0)[prefs.cats[pos-1],prefs.cats[pos]]=[id,prefs.cats[pos-1]];storePrefs();redraw(bsOnline?'raise-'+id:'visible-'+id);return}
  if(a==='confirm'){openOverlay('confirm',{id});return}if(a==='doConfirm'){confirmDo(id);return}
  if(a==='accountAct'){if(signed)openOverlay('confirm',{id:'logout'});else page('login');return}
  if(a==='login'){page('login');return}if(a==='renew'){s.pair=(s.pair+1)%data.pair.length;s.exp=Date.now()+120000;redraw('pair-confirm');return}
@@ -405,13 +467,13 @@ function dispatch(el){const {act:a,id,k,row}=el.dataset,s=current();
  watchAction(a,id,k)
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(b&&!b.disabled)dispatch(b)});
-document.addEventListener('input',e=>{if(e.target.id==='query'){current().q=e.target.value;if($('wordCandidates'))$('wordCandidates').innerHTML=candidateMarkup(current().q);const c=document.querySelector('.clearInput');if(c){c.disabled=!current().q;c.setAttribute('aria-hidden',String(!current().q))}}});
+document.addEventListener('input',e=>{if(e.target.id==='query'){current().q=e.target.value;updateSearchSide(current().q);const c=document.querySelector('.clearInput');if(c){c.disabled=!current().q;c.setAttribute('aria-hidden',String(!current().q))}}});
 document.addEventListener('focusin',e=>{const el=e.target;if(overlay?.mode==='episodes'&&el.dataset.act==='watchEpisode')showEpisodePreview(Number(el.dataset.id));if(overlay?.kind==='themes'&&el.dataset.act==='themeSet')setTheme(el.dataset.id);if(!el.dataset.k||restoring||overlay||current().type==='player')return;
  const {act,id,k,row}=el.dataset;current().focus=k;if(act==='nav'&&current().type==='browse'&&current().root!==id){rootTo(id);return}
  if(act==='spot'&&current().spot!==id){current().spot=id;redraw(k);return}
  if(act==='channelSub'){applyChannelSub(id);return}
  if(immediate.includes(act)){selectTab(act,id,k,row);return}
- if(current().root==='cinema'&&row==='filmRail'&&$('cinStage')){const w=W[id]||V[id];if(w){current().featureId=id;$('cinStage').innerHTML=cinemaFeature(w,current().filter);for(const pick of view.querySelectorAll('.cinPick'))pick.setAttribute('aria-pressed',String(pick.dataset.id===id))}}
+ if(current().root==='cinema'&&row==='filmRail'&&$('cinStage')){if(bsOnline)view.scrollTop=0;const w=W[id]||V[id];if(w){current().featureId=id;$('cinStage').innerHTML=cinemaFeature(w,current().filter);for(const pick of view.querySelectorAll('.cinPick'))pick.setAttribute('aria-pressed',String(pick.dataset.id===id))}}
  if(current().name==='shelf'){if(k.startsWith('s-'))updateGallery(id);else if(el.closest('.shelfCell'))scheduleShelfPreview(id);else stopShelfPreview()}
  alignStrip(el);
  syncHints()});
@@ -559,8 +621,8 @@ function shelf(){
  if(!total)return wrap(head+empty('片单里还没有作品','<p>从作品详情加入追番或追剧。</p>'));
  let rows='';
  for(let offset=start;offset<Math.min(start+shelfPageSize,total);offset+=shelfCols){
-  const row=ids.slice(offset,offset+shelfCols),expanded=i>=offset&&i<offset+row.length?i-offset:-1;
-  rows+='<div class="denseRow" style="grid-template-columns:'+shelfTracks(expanded)+'">'+row.map((id,j)=>shelfCell(id,offset+j,offset+j===i)).join('')+'</div>';
+  const row=ids.slice(offset,offset+shelfCols),selected=!bsOnline || s.focus==='s-'+ids[i],expanded=selected&&i>=offset&&i<offset+row.length?i-offset:-1;
+  rows+='<div class="denseRow" style="grid-template-columns:'+shelfTracks(expanded)+'">'+row.map((id,j)=>shelfCell(id,offset+j,selected&&offset+j===i)).join('')+'</div>';
  }
  return wrap(head+'<div class="denseWall">'+rows+'</div>');
 }
@@ -644,6 +706,10 @@ function moveFocus(el,dir,scope){const elements=[...scope.querySelectorAll('[dat
  to(line.reduce((best,n)=>Math.abs(x(n)-x(el))<Math.abs(x(best)-x(el))?n:best,line[0]))
 }
 function arrow(key){
+ if(bsOnline&&overlay?.inline){
+  if(key==='ArrowUp'){const anchor=overlay.mode==='episodes'?'episodes':'recommend';completeOverlay(()=>focus(anchor,false));return}
+  if(key==='ArrowDown')return;
+ }
  if(overlay){moveFocus(document.activeElement,key,modal);return}const s=current(),el=document.activeElement,k=el?.dataset.k||'',r=el?.dataset.row||'';
  if(s.type==='player'){playerArrows(el,key);return}
  if(revisedArrow(s,el,key))return;
@@ -682,7 +748,7 @@ function heroFilm(s){
 
 function rankedLine(w,i,row='rank'){
  const vid=w.kind==='video',art=vid?w.wide:w.cover||w.wide;
- return b(row+'-'+w.id,row+i,vid?'play':'item',w.id,'<b class="rankNum">'+pad(i+1)+'</b>'+paint('ranking',art,w.title,'rankArt '+(vid?'':'posterRank'))+'<span class="rankTitle"><strong>'+esc(w.title)+'</strong><small>'+esc(vid?w.artist+' · '+w.cat:workMeta(w))+'</small></span><small class="rankStat">'+esc(vid?clock(w.duration):release(w)||types[w.kind])+'</small><span aria-hidden="true">›</span>','rankLine')
+ return b(row+'-'+w.id,row+i,vid?'play':'item',w.id,'<b class="rankNum">'+pad(i+1)+'</b>'+paint('ranking',art,w.title,'rankArt '+(vid?'':'posterRank'))+'<span class="rankTitle"><strong><span>'+esc(w.title)+'</span></strong><small>'+esc(vid?w.artist+' · '+w.cat:workMeta(w))+'</small></span><small class="rankStat">'+esc(vid?clock(w.duration):release(w)||types[w.kind])+'</small><span aria-hidden="true">›</span>','rankLine')
 }
 function cinemaPlates(items,row){
  return '<div class="posterGrid">'+items.map((w,i)=>b(row+'-'+w.id,row+Math.floor(i/6),w.kind==='video'?'play':'item',w.id,paint('folio',imageLine(w),w.title,'thumb vertical')+'<span class="tileName">'+esc(w.title)+'</span>','tile')).join('')+'</div>'
@@ -705,7 +771,7 @@ function libraryEntry(mode){
  return b('mine-'+key,'library','mineGo',key,'<span class="libraryWords"><small>'+esc(signed?ids.length+' 部作品':'登录后查看')+'</small><strong>'+ (anime?'我的追番':'我的追剧')+'</strong><span>打开片单　›</span></span><span class="libraryPrints">'+art+'</span>','libraryEntry '+(anime?'animeEntry':'dramaEntry'))
 }
 function aboutCard(){
- if(bsOnline)return wrap('<article class="aboutIdentity"><div class="aboutBrand">Bili<span>BS</span></div><div><span class="eyeline">Bili Big Screen · B站大屏幕版</span><h1>关于 BiliBS</h1><p>在电视上浏览哔哩哔哩、追新番，或从上一次停下的地方继续看。</p><p class="fineprint">独立第三方客户端。可观看的内容和画质取决于片源、所在地区与当前账号。</p>'+actionLink('license','about','page','licenses','素材与组件说明')+'</div></article>');
+ if(bsOnline)return wrap('<article class="aboutIdentity"><div class="aboutBrand">Bili<span>BS</span></div><div><span class="eyeline">Bili Big Screen · B站大屏幕版</span><h1>关于 BiliBS</h1><p>在电视上浏览哔哩哔哩、追新番，或从上一次停下的地方继续看。</p><p class="fineprint">BiliBS 是独立第三方项目，与哔哩哔哩及其关联公司无隶属、合作或背书关系。</p><p class="fineprint">仅供个人学习、研究与非商业使用。禁止销售、付费分发、广告变现、商业预装及其他商业用途。第三方组件按各自许可证使用。</p><p class="fineprint">视频、音频、图片、文字与商标等权利归原权利人所有。使用本项目须遵守适用法律及平台规则，内容访问以平台授权、账号权限和所在地区为准。</p><p class="fineprint">权利人如对本项目有异议，可通过 github.com/HAHAHAMMER/BiliBS/issues 联系维护者，我们将及时核查，并按核查结果处理相关内容或功能。</p>'+actionLink('license','about','page','licenses','素材与组件说明')+'</div></article>');
  return wrap('<article class="aboutIdentity"><div class="aboutBrand">Bili<span>BS</span></div><div><span class="eyeline">Bili Big Screen · B站大屏幕版</span><h1>关于 BiliBS</h1><p>一个在客厅里找片、追更和收藏作品的电视端原型。</p><p class="fineprint">独立第三方设计。播放使用离线样片，账号、动态、热度、直播和云端历史采用本机演示数据。</p>'+actionLink('license','about','page','licenses','素材与组件说明')+'</div></article>')
 }
 
@@ -914,8 +980,13 @@ function candidateMarkup(q){
  const terms=q?.trim()?Object.keys(data.pinyin).filter(t=>matches(q,[t])).slice(0,4):[];
  return terms.map((t,i)=>b('cand-'+i,'candidates','queryWord',t,esc(t),'word')).join('');
 }
+function updateSearchSide(q){
+ const candidates=$('wordCandidates');if(!candidates)return;
+ candidates.innerHTML=candidateMarkup(q);
+ if($('recentSearch')){$('recentSearch').hidden=!!q.trim();$('suggestSearch').hidden=!q.trim()}
+}
 function typeSearch(value){
- const s=current();s.q=value.slice(0,60);$('query').value=s.q;$('wordCandidates').innerHTML=candidateMarkup(s.q);
+ const s=current();s.q=value.slice(0,60);$('query').value=s.q;updateSearchSide(s.q);
 }
 function alignStrip(el){
  const strip=el.closest?.('.hStrip');if(!strip)return;
@@ -934,7 +1005,7 @@ function nearKey(source,selector,preferred){
 function firstKey(selector){const el=view.querySelector(selector);return el?focus(el.dataset.k):false}
 function searchKeys(key,el){
  const k=el.dataset.k||'',r=el.dataset.row||'',up=key==='ArrowUp',down=key==='ArrowDown',left=key==='ArrowLeft',right=key==='ArrowRight';
- const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',char=k.startsWith('osk-')?k.slice(4):'',i=letters.indexOf(char),side=()=>firstKey('aside [data-k^="past-"], aside [data-k^="suggest-"]');
+ const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',char=k.startsWith('osk-')?k.slice(4):'',i=letters.indexOf(char),side=()=>{const n=[...view.querySelectorAll('aside [data-act="queryWord"]')].find(el=>el.offsetWidth);return n&&focus(n.dataset.k)};
  if(char.length===1&&i>=0){
   if(right&&(i+1)%9===0)side();else if(left&&i%9===0)return true;
   else if(up&&i<9)focus('query');else if(down&&i>=27)focus('osk-'+['del','clear','go'][Math.floor((i-27)/3)]);
@@ -945,12 +1016,12 @@ function searchKeys(key,el){
  if(r==='oskActions'){
   const ix=['del','clear','go'].indexOf(char);
   if(up){focus('osk-'+letters[27+ix*3]);return true}
-  if(down){firstKey('#wordCandidates [data-k]');return true}
+  if(down){if(!bsOnline)firstKey('#wordCandidates [data-k]');return true}
   if(right&&ix===2){side();return true}
  }
- if(r==='candidates'&&up){focus('osk-del');return true}
+ if(!bsOnline&&r==='candidates'&&up){focus('osk-del');return true}
  if(el.closest('aside')){
-  const nodes=[...view.querySelectorAll('aside [data-k]')],sections=[...new Set(nodes.map(n=>n.dataset.row))].map(row=>nodes.filter(n=>n.dataset.row===row));
+  const nodes=[...view.querySelectorAll('aside [data-k]')].filter(n=>n.offsetWidth),sections=[...new Set(nodes.map(n=>n.dataset.row))].map(row=>nodes.filter(n=>n.dataset.row===row));
   const ri=sections.findIndex(row=>row.includes(el)),col=sections[ri].indexOf(el);
   if(left&&col===0){focus('osk-'+letters[Math.min(3,ri)*9+8]);return true}
   if(up||down){const next=sections[ri+(down?1:-1)];if(next)focus(next[Math.min(col,next.length-1)].dataset.k);else if(up)focus('submit');return true}
@@ -961,7 +1032,8 @@ function revisedArrow(s,el,key){
  const k=el.dataset.k||'',r=el.dataset.row||'',up=key==='ArrowUp',down=key==='ArrowDown',left=key==='ArrowLeft',right=key==='ArrowRight';
  if(s.name==='search')return searchKeys(key,el);if(s.type!=='browse')return false;
  if(s.root==='home'&&s.filter==='rec'){
-  if(k==='nav-home'&&down){focus('hero-primary');return true}
+  if(k==='nav-home'&&down){focus(bsOnline?'homeTab-rec':'hero-primary');return true}
+  if(bsOnline&&r==='homeTab'&&down){focus('hero-primary')||focus('refresh');return true}
   if(r==='hero'){
    if(left||right){const i=spotlights.indexOf(s.spot||spotlights[0]);s.spot=spotlights[(i+(right?1:-1)+spotlights.length)%spotlights.length];redraw('hero-primary')}
    else focus(up?'homeTab-rec':'rec-'+homeVideos()[0].id);return true;

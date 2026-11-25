@@ -13,6 +13,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.regex.*;
@@ -25,7 +26,7 @@ import javax.net.ssl.HttpsURLConnection;
 public final class TrustedNetwork {
     private static final String IMAGE_PREFIX="/__bs/image/";
     private static final int IMAGE_LIMIT=8*1024*1024;
-    private static final Pattern IMAGE=Pattern.compile("i[012]\\.hdslb\\.com/bfs/(?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_.-]+\\.(?:jpe?g|png|webp|gif|avif)(?:@[A-Za-z0-9_.!-]+)?",Pattern.CASE_INSENSITIVE);
+    private static final Pattern IMAGE=Pattern.compile("(?:(?:i[012]\\.hdslb\\.com|archive\\.biliimg\\.com)/bfs/(?:[A-Za-z0-9_-]+/)+|bimp\\.hdslb\\.com/videoshotpv(?:hd|sd)boss/)[A-Za-z0-9_.-]+\\.(?:jpe?g|png|webp|gif|avif)(?:@[A-Za-z0-9_.!-]+)?",Pattern.CASE_INSENSITIVE);
     private static final int LIMIT = 12 * 1024 * 1024;
     private static final String KEY = "tv.bilibs.session.aes";
     private static final String QR = "/x/passport-login/web/qrcode/";
@@ -186,7 +187,7 @@ public final class TrustedNetwork {
     private static boolean domainMatch(String host,String domain) {
         return host.equals(domain)||host.endsWith("."+domain);
     }
-    private void readCookies(URI uri, HttpsURLConnection response) throws Exception {
+    private void readCookies(URI uri, HttpsURLConnection response,boolean visitorOnly) throws Exception {
         boolean changed = false;
         long now = System.currentTimeMillis();
         for (Map.Entry<String,List<String>> header:response.getHeaderFields().entrySet()) {
@@ -196,6 +197,7 @@ public final class TrustedNetwork {
                 try { parsed=HttpCookie.parse(line); } catch(IllegalArgumentException badCookie) { continue; }
                 for (HttpCookie cookie:parsed) {
                     String name = cookie.getName(), val = cookie.getValue();
+                    if(visitorOnly && !Arrays.asList("buvid3","b_nut").contains(name)) continue;
                     String domain = cookie.getDomain();
                     boolean hostOnly = domain==null;
                     domain = hostOnly ? uri.getHost() : domain.replaceFirst("^\\.","").toLowerCase(Locale.ROOT);
@@ -385,8 +387,24 @@ public final class TrustedNetwork {
             String encoded=URLEncoder.encode(csrf,"UTF-8");
             form+=(form.isEmpty()?"":"&")+"csrf="+encoded+"&csrf_token="+encoded;
         } else if(!form.isEmpty()) throw denied();
+        if("api.bilibili.com".equals(uri.getHost()) &&
+                Arrays.asList("/x/web-interface/popular/series/list","/x/web-interface/popular/series/one","/x/web-interface/region/feed/rcmd","/x/space/wbi/arc/search","/x/v2/reply/wbi/main").contains(path))
+        {
+            uri=wbiUri(uri);
+            synchronized(LOCK) {
+                active(snapshot);
+                if(accountSnapshot!=accountVersion)throw denied();
+                cookieValues=cookiesFor(uri);
+            }
+        }
         HttpsURLConnection c=connect(uri,method);
         try {
+            if ("www.bilibili.com".equals(uri.getHost())) {
+                if (query!=null || !form.isEmpty() || spec.has("headers")) throw denied();
+                int status=c.getResponseCode();
+                if(status==200) synchronized(LOCK) { active(snapshot); readCookies(uri,c,true); }
+                return pack(status,status==200?decode(c,path):"","text/html",null);
+            }
             if(!cookieValues.isEmpty()) {
                 StringBuilder header=new StringBuilder();
                 for(Map.Entry<String,String> entry:cookieValues.entrySet()) {
@@ -431,7 +449,7 @@ public final class TrustedNetwork {
                     doc=select(doc,"code","message","ttl").put("data",body);
                 }
                 if(!path.equals(QR+"poll") || (doc.optInt("code",-1)==0 && doc.getJSONObject("data").optInt("code",-1)==0)) {
-                    readCookies(uri,c);
+                    readCookies(uri,c,false);
                     if(path.equals(QR+"poll")) {
                         qrKey=null; qrHandle=null; qrVersion++; accountVersion++;
                         grants.clear(); ids.clear();
@@ -443,6 +461,44 @@ public final class TrustedNetwork {
                 return pack(status,doc.toString(),"application/json",media);
             }
         } finally { c.disconnect(); }
+    }
+    private URI wbiUri(URI uri) throws Exception {
+        boolean initialized;
+        synchronized(LOCK) { initialized=cookiesFor(uri).containsKey("buvid3"); }
+        if(!initialized) request(new JSONObject().put("url","https://www.bilibili.com/c/knowledge/").toString());
+        // Match the web weekly page with fresh public keys, including guest nav responses.
+        JSONObject reply=new JSONObject(request(new JSONObject().put("url","https://api.bilibili.com/x/web-interface/nav").toString()));
+        JSONObject nav=new JSONObject(reply.getString("body"));
+        if(reply.getInt("status")!=200 || (nav.optInt("code")!=0 && nav.optInt("code")!=-101)) throw denied();
+        JSONObject images=nav.getJSONObject("data").getJSONObject("wbi_img");
+        StringBuilder source=new StringBuilder();
+        for(String name:Arrays.asList("img_url","sub_url")) {
+            Matcher match=Pattern.compile(".*/([0-9a-f]{32})\\.[a-z]+").matcher(images.getString(name));
+            if(!match.matches()) throw denied();
+            source.append(match.group(1));
+        }
+        int[] order={46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,
+                     27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13};
+        StringBuilder mixin=new StringBuilder();
+        for(int index:order) mixin.append(source.charAt(index));
+        SortedMap<String,String> fields=new TreeMap<>();
+        if(uri.getRawQuery()!=null) for(String pair:uri.getRawQuery().split("&")) {
+            String[] parts=pair.split("=",2);
+            String name=field(parts[0]);
+            if(!name.equals("wts") && !name.equals("w_rid"))
+                fields.put(name,field(parts.length>1?parts[1]:"").replaceAll("[!'()*]",""));
+        }
+        fields.put("wts",Long.toString(System.currentTimeMillis()/1000));
+        StringJoiner query=new StringJoiner("&");
+        for(Map.Entry<String,String> entry:fields.entrySet())
+            query.add(wbiEncode(entry.getKey())+"="+wbiEncode(entry.getValue()));
+        byte[] digest=MessageDigest.getInstance("MD5").digest((query.toString()+mixin).getBytes(StandardCharsets.UTF_8));
+        StringBuilder signature=new StringBuilder();
+        for(byte value:digest) signature.append(String.format(Locale.ROOT,"%02x",value&255));
+        return safe("https://"+uri.getHost()+uri.getRawPath()+"?"+query+"&w_rid="+signature);
+    }
+    private static String wbiEncode(String value) throws Exception {
+        return URLEncoder.encode(value,"UTF-8").replace("+","%20").replace("*","%2A").replace("%7E","~");
     }
     public boolean allowedMedia(String url) {
         synchronized(LOCK) { return !closed && version==epoch && loaded && grants.containsKey(cdn(url)); }
@@ -490,8 +546,79 @@ public final class TrustedNetwork {
             if(magic(data,i,'a','v','i','f') || magic(data,i,'a','v','i','s')) return "image/avif";
         throw denied();
     }
+    private static final class ImageStream extends FilterInputStream {
+        private final HttpsURLConnection connection;
+        private int remaining=IMAGE_LIMIT;
+        private boolean closed;
+        ImageStream(InputStream input,HttpsURLConnection connection) { super(input);this.connection=connection; }
+        @Override public int read() throws IOException {
+            if(closed)return -1;
+            int value=super.read();
+            if(value<0){close();return -1;}
+            if(--remaining<0){close();throw denied();}
+            return value;
+        }
+        @Override public int read(byte[] data,int offset,int length) throws IOException {
+            if(length==0)return 0;
+            if(closed)return -1;
+            int count=super.read(data,offset,Math.min(length,remaining+1));
+            if(count<0){close();return -1;}
+            remaining-=count;
+            if(remaining<0){close();throw denied();}
+            return count;
+        }
+        @Override public long skip(long length) throws IOException {
+            byte[] buffer=new byte[2048];long skipped=0;
+            while(skipped<length){int count=read(buffer,0,(int)Math.min(buffer.length,length-skipped));if(count<0)break;skipped+=count;}
+            return skipped;
+        }
+        @Override public int available() throws IOException { return closed?0:Math.min(remaining,super.available()); }
+        @Override public void close() throws IOException {
+            if(closed)return;
+            closed=true;
+            try{super.close();}finally{connection.disconnect();}
+        }
+    }
+    // WebView applies the request Range again to intercepted streams, even
+    // when the upstream already returned 206. Account for that initial skip
+    // without discarding the beginning of the actual media segment.
+    private static final class MediaStream extends FilterInputStream {
+        private final HttpsURLConnection connection;
+        private long prefix,remaining,total;
+        private boolean closed;
+        MediaStream(InputStream input,HttpsURLConnection connection,long start,long length,long total) {
+            super(input);this.connection=connection;prefix=start;remaining=length;this.total=total;
+        }
+        @Override public int available() { return closed?0:total>0&&total<=Integer.MAX_VALUE?(int)total:0; }
+        @Override public long skip(long count) throws IOException {
+            if(closed||count<=0)return 0;
+            long virtual=Math.min(prefix,count);prefix-=virtual;
+            if(virtual>0)return virtual;
+            long skipped=super.skip(remaining<0?count:Math.min(count,remaining));
+            if(remaining>0)remaining-=skipped;return skipped;
+        }
+        @Override public int read() throws IOException {
+            if(closed)return -1;
+            if(remaining==0){close();return -1;}
+            int value=super.read();if(value<0){close();return -1;}
+            if(remaining>0)remaining--;return value;
+        }
+        @Override public int read(byte[] data,int offset,int length) throws IOException {
+            if(length==0)return 0;
+            if(closed)return -1;
+            if(remaining==0){close();return -1;}
+            int count=super.read(data,offset,remaining<0?length:(int)Math.min(length,remaining));
+            if(count<0){close();return -1;}
+            if(remaining>0)remaining-=count;return count;
+        }
+        @Override public void close() throws IOException {
+            if(closed)return;closed=true;
+            try{super.close();}finally{connection.disconnect();}
+        }
+    }
     public WebResourceResponse image(String path,String method) {
         HttpsURLConnection c=null;
+        BufferedInputStream stream=null;
         try {
             if(!("GET".equals(method)||"HEAD".equals(method)) || path==null || !path.startsWith(IMAGE_PREFIX)) throw denied();
             String target=path.substring(IMAGE_PREFIX.length());
@@ -501,17 +628,26 @@ public final class TrustedNetwork {
             if(c.getResponseCode()!=200 || c.getContentLengthLong()>IMAGE_LIMIT) throw denied();
             String content=c.getContentType();
             if(content==null || !content.startsWith("image/")) throw denied();
-            byte[] bytes=read(c.getInputStream(),IMAGE_LIMIT);
-            String mime=imageMime(bytes);
+            long length=c.getContentLengthLong();
+            stream=new BufferedInputStream(new ImageStream(c.getInputStream(),c),16384);
+            stream.mark(64);
+            byte[] signature=new byte[64];int used=0,count;
+            while(used<signature.length&&(count=stream.read(signature,used,signature.length-used))>0)used+=count;
+            stream.reset();
+            String mime=imageMime(Arrays.copyOf(signature,used));
             if(!mime.equalsIgnoreCase(content.split(";",2)[0].trim())) throw denied();
             Map<String,String> headers=new HashMap<>();
             headers.put("Cache-Control","private, max-age=900");
-            headers.put("Content-Length",String.valueOf(bytes.length));
+            if(length>=0)headers.put("Content-Length",String.valueOf(length));
             headers.put("X-Content-Type-Options","nosniff");
             headers.put("Content-Security-Policy","default-src 'none'");
-            return new WebResourceResponse(mime,null,200,"OK",headers,"HEAD".equals(method)?null:new ByteArrayInputStream(bytes));
+            InputStream body=stream;
+            if("HEAD".equals(method)){stream.close();body=new ByteArrayInputStream(new byte[0]);}
+            WebResourceResponse result=new WebResourceResponse(mime,null,200,"OK",headers,body);
+            c=null; // WebView owns the bounded stream and closes its connection.
+            return result;
         } catch(Exception failure) { return response(403,"text/plain",new HashMap<>(),null); }
-        finally { if(c!=null) c.disconnect(); }
+        finally { if(c!=null){if(stream!=null)try{stream.close();}catch(IOException ignored){}c.disconnect();} }
     }
     public WebResourceResponse media(String token,String method,String range) {
         HttpsURLConnection connection=null;
@@ -550,12 +686,17 @@ public final class TrustedNetwork {
             synchronized(LOCK) { active(snapshot); }
             String mime=MIME.contains(type)?type:"application/octet-stream";
             if("HEAD".equals(method)) return response(status,mime,headers,null);
-            final HttpsURLConnection streamOwner=connection;
-            InputStream stream=new FilterInputStream(connection.getInputStream()) {
-                @Override public void close() throws IOException {
-                    try { super.close(); } finally { streamOwner.disconnect(); }
-                }
-            };
+            long start=0,length=connection.getContentLengthLong(),total=length;
+            if(status==206) {
+                Matcher span=Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+)").matcher(connection.getHeaderField("Content-Range"));
+                if(!span.matches())throw denied();
+                start=Long.parseLong(span.group(1));long end=Long.parseLong(span.group(2));total=Long.parseLong(span.group(3));
+                if(end<start||end>=total)throw denied();
+                length=end-start+1;
+            }
+            // WebView supplies Content-Length from available()/the request range.
+            headers.remove("Content-Length");
+            InputStream stream=new MediaStream(connection.getInputStream(),connection,start,length,total);
             connection=null;
             return response(status,mime,headers,stream);
         } catch(Exception ex) { return response(403,"text/plain",new HashMap<>(),null); }

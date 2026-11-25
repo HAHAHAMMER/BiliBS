@@ -46,6 +46,7 @@
       await load('src/search-words.js');
       await load('src/transport.js');
       await load('src/services.js');
+      await load('src/home-candidates.js');
     }
     await load('src/runtime.js');
     if (!window.BS_READY) {

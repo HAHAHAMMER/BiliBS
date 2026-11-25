@@ -1,5 +1,6 @@
 """BiliBS loopback-only development host. Run with python tools/dev_server.py."""
 import argparse
+import hashlib
 from collections import OrderedDict
 from contextlib import closing
 from http.cookiejar import CookieJar, DefaultCookiePolicy
@@ -13,7 +14,7 @@ import secrets
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, unquote
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 import zlib
 
@@ -22,7 +23,7 @@ POLICY = json.loads((ROOT / 'src/transport-policy.json').read_text(encoding='utf
 LIMIT = 12 * 1024 * 1024
 IMAGE_PREFIX = '/__bs/image/'
 IMAGE_LIMIT = 8*1024*1024
-IMAGE_TARGET = re.compile(r'i[012]\.hdslb\.com/bfs/(?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_.-]+\.(?:jpe?g|png|webp|gif|avif)(?:@[A-Za-z0-9_.!-]+)?', re.I)
+IMAGE_TARGET = re.compile(r'(?:(?:i[012]\.hdslb\.com|archive\.biliimg\.com)/bfs/(?:[A-Za-z0-9_-]+/)+|bimp\.hdslb\.com/videoshotpv(?:hd|sd)boss/)[A-Za-z0-9_.-]+\.(?:jpe?g|png|webp|gif|avif)(?:@[A-Za-z0-9_.!-]+)?', re.I)
 RANGE = re.compile(r'bytes=(?:\d{1,19}-\d{0,19}|-\d{1,19})\Z')
 REDACT = {'refresh_token', 'access_token', 'access_key', 'sessdata', 'bili_jct', 'cookie', 'cookie_info'}
 HLS = re.compile(r'(?<![A-Z0-9-])URI="([^"]+)"')
@@ -182,6 +183,18 @@ class Session:
         p = validate_url(url)
         if p.path not in POLICY.get(method, {}).get(p.hostname,[]):
             raise Denied()
+        if p.hostname == 'www.bilibili.com':
+            if p.query or spec.get('body') or spec.get('headers'):
+                raise Denied()
+            with closing(open_upstream(self.opener,url,'GET')) as response:
+                if response.status == 200:
+                    visitor = CookieJar()
+                    visitor.extract_cookies(response, Request(url))
+                    with self.lock:
+                        for cookie in visitor:
+                            if cookie.name in ('buvid3', 'b_nut'):
+                                self.jar.set_cookie(cookie)
+                return pack(response.status,read_body(response,p.path) if response.status==200 else '', 'text/html')
         headers = spec.get('headers') or {}
         if not isinstance(headers,dict) or any(k.lower() != 'content-type' or
                 v.split(';')[0].strip().lower() != 'application/x-www-form-urlencoded' for k,v in headers.items()):
@@ -219,6 +232,13 @@ class Session:
             data = urlencode(form + [('csrf',csrf.value),('csrf_token',csrf.value)]).encode()
         elif spec.get('body'):
             raise Denied()
+        if p.hostname == 'api.bilibili.com' and p.path in (
+                '/x/web-interface/popular/series/list', '/x/web-interface/popular/series/one', '/x/web-interface/region/feed/rcmd', '/x/space/wbi/arc/search', '/x/v2/reply/wbi/main'):
+            url = self.wbi_url(url)
+            cookie_request = Request(url)
+            with self.lock:
+                self.jar.add_cookie_header(cookie_request)
+            cookie_header = cookie_request.get_header('Cookie','')
         with closing(open_upstream(self.opener,url,method,data,{'Cookie':cookie_header} if cookie_header else {})) as response:
             if not 200 <= response.status < 300:
                 return pack(response.status,{'code':-1,'message':'平台请求失败'})
@@ -263,6 +283,37 @@ class Session:
                         self.by_id.clear()
                 grants = self.playback(document) if p.path in POLICY['playback'] else {}
             return pack(response.status,clean(document),media=grants)
+
+    def wbi_url(self, url):
+        # The public page establishes the site's guest session before its signed API calls.
+        with self.lock:
+            initialized = any(c.name == 'buvid3' and not c.is_expired() for c in self.jar)
+        if not initialized:
+            self.request({'url':'https://www.bilibili.com/c/knowledge/'})
+        # Both weekly and channel requests use the current public nav keys.
+        reply = self.request({'url':'https://api.bilibili.com/x/web-interface/nav'})
+        nav = json.loads(reply['body'])
+        if not isinstance(nav, dict) or reply['status'] != 200 or nav.get('code') not in (0, -101):
+            raise Denied()
+        data = nav.get('data')
+        images = data.get('wbi_img') if isinstance(data, dict) else None
+        if not isinstance(images, dict):
+            raise Denied()
+        keys = [re.fullmatch(r'.*/([0-9a-f]{32})\.[a-z]+', images.get(k, ''))
+                for k in ('img_url', 'sub_url')]
+        if not all(keys):
+            raise Denied()
+        source = ''.join(match[1] for match in keys)
+        order = (46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,
+                 27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13)
+        mixin = ''.join(source[i] for i in order)
+        p = urlsplit(url)
+        fields = {k:re.sub(r"[!'()*]", '', v) for k,v in parse_qsl(p.query,keep_blank_values=True)
+                  if k not in ('wts', 'w_rid')}
+        fields['wts'] = str(int(time.time()))
+        query = urlencode(sorted(fields.items()), quote_via=quote, safe='~')
+        signature = hashlib.md5((query + mixin).encode()).hexdigest()
+        return p._replace(query=query + '&w_rid=' + signature).geturl()
 
     def rewrite(self, text, url):
         if not text.startswith('#EXTM3U'):
