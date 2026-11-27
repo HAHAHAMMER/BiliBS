@@ -4,6 +4,8 @@
 
 BiliBS 是面向 Android TV 和电视盒子的第三方哔哩哔哩客户端。用遥控器发现视频、追番看剧，也能从上次停下的地方继续观看。
 
+**[下载 Android TV 安装包 · v1.0.1](https://github.com/HAHAHAMMER/BiliBS/raw/refs/heads/main/releases/BiliBS-TV-v1.0.1.apk?download=1)**
+
 ![BiliBS 首页：高分精选与视频推荐](.github/screenshots/home.webp)
 
 ## 为遥控器和大屏幕而做

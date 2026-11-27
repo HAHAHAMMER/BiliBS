@@ -107,7 +107,9 @@ async function main() {
   await check('search',{type:'video',keyword:'课程'},[ok({result:[{...video,type:'ketang'},video],numPages:1})],r=>assert.equal(r.items.length,1));
   await check('hotSearch',{},[ok({trending:{list:[{keyword:'热词'}]}})]);
   await check('liveAreas',{},[ok([{id:2,name:'游戏',list:[{id:50,parent_id:2,name:'综合'}]}])],r=>assert.equal(r.items[0].children[0].parentAreaId,'2'));
-  await check('liveRooms',{},[ok({recommend_room_list:[room]})]);
+  await check('liveRooms',{},[ok({recommend_room_list:[room]})],r=>assert.equal(r.next,2));
+  await check('liveRooms',{page:2},[ok({list:[room],count:600})],(r,p)=>{assert.equal(p.fields.get('page'),'1');assert.equal(r.next,3)});
+  await check('liveRooms',{page:3},[ok({list:[room],has_more:0,count:600})],r=>assert.equal(r.next,null));
   await check('liveRooms',{parentAreaId:2},[ok({list:[room]})]);
   await check('liveRooms',{followed:true},[ok({isLogin:true,mid:42}),ok({rooms:[room]})]);
   await check('liveRoom',ids,[ok(room)]); await check('authorLive',ids,[ok({'42':room})]);

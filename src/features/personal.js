@@ -25,16 +25,19 @@ if (bsOnline) {
   const foldersById = new Map();
   let account = null, generation = 0, authAttempt = 0, authBusy = true, authError = '';
   let qrSession = null, qrNumber = 0;
-  let redrawQueued = false, firstShelfFocus = null;
+  let redrawQueued = false, redrawFeedOnly=false, firstShelfFocus = null;
   const personalRoutes = new Set(['shelf','account','login','folders','folder','later','likes','follows','author','history','post']);
   signed = false;
 
-  function redrawPersonal() {
-    if (redrawQueued || overlay || document.hidden) return;
+  function redrawPersonal(resource) {
+    if (overlay || document.hidden) return;
+    if(redrawQueued){if(resource?.op!=='feed')redrawFeedOnly=false;return;}
+    redrawFeedOnly=resource?.op==='feed';
     redrawQueued = true;
     requestAnimationFrame(() => {
       redrawQueued = false;
       const s = current();
+      if(redrawFeedOnly&&s.root==='feed'&&patchFeed())return;
       if (!overlay && (personalRoutes.has(s.name) || ['mine','feed'].includes(s.root))) {
         const previous = document.activeElement?.dataset.k;
         redraw(previous || s.focus);
@@ -98,7 +101,7 @@ if (bsOnline) {
       request(r);
     }
     const ttl = op==='feed' || op==='history' ? 30000 : 120000;
-    if (r.ready && !r.error && !r.busy && !r.readBy.has(current()) && Date.now()-r.fetched>ttl) request(r);
+    if (r.ready && !r.error && !r.busy && !r.readBy.has(current()) && !(op==='feed'&&current().feedResource===key) && Date.now()-r.fetched>ttl) request(r);
     r.readBy.add(current());
     return r;
   }
@@ -129,7 +132,7 @@ if (bsOnline) {
       if (generation === epoch && cache.get(r.key) === r) { r.error = e.message || '读取失败'; failSession(e); }
     } finally {
       r.busy = false;
-      if (generation === epoch && cache.get(r.key) === r && r.readBy.has(current())) redrawPersonal();
+      if (generation === epoch && cache.get(r.key) === r && r.readBy.has(current())) redrawPersonal(r);
     }
   }
   function mark(kind, id, value) {
@@ -154,10 +157,10 @@ if (bsOnline) {
   function clearResources(...ops) {
     for (const [key,r] of cache) if (ops.includes(r.op)) cache.delete(key);
   }
-  function status(r, moreLabel = '加载更多') {
+  function status(r, moreLabel = '加载更多', automatic=false) {
     if (r.error) return '<div class="stateNote"><span>'+esc(r.error)+'</span>'+b('retry-'+r.op,'load','personalRetry',r.key,'重试','secondary')+'</div>';
     if (r.busy) return '<p class="submeta" role="status">正在读取…</p>';
-    if (r.more != null) return b('more-'+r.op,'load','personalMore',r.key,esc(moreLabel),'secondary');
+    if (r.more != null&&!automatic) return b('more-'+r.op,'load','personalMore',r.key,esc(moreLabel),'secondary');
     return '';
   }
   const listCount = r => r?.ready ? (r.total ?? (r.more == null ? r.items.length : null)) : null;
@@ -657,11 +660,40 @@ if (bsOnline) {
       selected='';s.creator='all';
     }
     const r=resource('feed',{...(selected?{mid:selected}:{}),...(s.filter==='video'?{type:'video'}:{})});
+    s.feedResource=r.key;
     const chips=[['all','全部'],...authors.items.map(a=>{const c=register(a);return c?[c.id,c.title]:null;}).filter(Boolean)].map(([id,label])=>b('creator-'+id,'authors','feedCreator',id,(id==='all'?'':avatar(id))+esc(label),'creatorChip','aria-selected="'+(id===(selected||'all'))+'"')).join('');
     const strip='<div class="authorStrip hStrip">'+b('all-follows','authors','private','follows','全部关注　›','manageChip')+chips+'</div>';
     const filtered=feedItems(r.items,s.filter||'all',selected);
-    return wrap(top('关注动态')+strip+(authors.error?status(authors):'')+subTabs([['all','全部动态'],['video','视频投稿'],['post','图文'],['room','正在直播']],s.filter,'feedTab')+(filtered.length?'<div class="feedGrid">'+filtered.map(feedCard).join('')+'</div>':r.ready?empty('这批动态中没有符合条件的内容'):'')+status(r));
+    return wrap(top('关注动态')+strip+(authors.error?status(authors):'')+subTabs([['all','全部动态'],['video','视频投稿'],['post','图文'],['room','正在直播']],s.filter,'feedTab')+'<section data-feed-key="'+esc(r.key)+'"><div class="feedGrid">'+filtered.map(feedCard).join('')+'</div><div data-feed-empty>'+(!filtered.length&&r.ready&&!r.more?empty('暂无符合条件的动态'):'')+'</div><div data-feed-state>'+status(r,'',true)+'</div><div data-feed-tail aria-hidden="true"></div></section>');
   };
+  let feedQueued=false;
+  function currentFeed(){return current().root==='feed'&&signed?cache.get(current().feedResource):null;}
+  function updateFeedState(r){
+    const host=view.querySelector('[data-feed-key]');if(!host||host.dataset.feedKey!==r.key)return;
+    host.setAttribute('aria-busy',String(r.busy));
+    const state=host.querySelector('[data-feed-state]'),html=status(r,'',true);
+    if(state.innerHTML!==html){state.innerHTML=html;focusStructureVersion++;}
+    const blank=host.querySelector('[data-feed-empty]');
+    blank.innerHTML=!feedItems(r.items,current().filter||'all',current().creator==='all'?'':current().creator).length&&r.ready&&!r.more?empty('暂无符合条件的动态'):'';
+  }
+  function moreFeed(){
+    const r=currentFeed();if(!r||!r.ready||r.busy||r.error||r.more==null||overlay)return false;
+    request(r,true);updateFeedState(r);return true;
+  }
+  function scheduleFeed(){
+    if(feedQueued||!currentFeed()||overlay||document.hidden)return;
+    feedQueued=true;requestAnimationFrame(()=>{
+      feedQueued=false;const tail=view.querySelector('[data-feed-tail]');
+      if(tail&&tail.getBoundingClientRect().top<view.getBoundingClientRect().bottom+400*scale)moreFeed();
+    });
+  }
+  function patchFeed(){
+    const r=currentFeed(),host=view.querySelector('[data-feed-key]');if(!r||!host||host.dataset.feedKey!==r.key)return false;
+    const rows=feedItems(r.items,current().filter||'all',current().creator==='all'?'':current().creator);
+    if(!appendRenderedList(host.querySelector('.feedGrid'),'<div class="feedGrid">'+rows.map(feedCard).join('')+'</div>'))return false;
+    updateFeedState(r);stashScroll(current());scheduleFeed();return true;
+  }
+  view.addEventListener('scroll',scheduleFeed,{passive:true});
   function authorRooms(items) {
     return '<div class="roomGrid">'+items.map((item,i)=>{
       const r=register(item); if(!r)return '';
@@ -738,6 +770,7 @@ if (bsOnline) {
   afterRender=function(s) {
     if (qrSession && s!==qrSession.route) cancelQr();
     baseAfter(s);
+    if(s.root==='feed')scheduleFeed();
     if(s.name==='shelf')syncShelfFocus();
     if(firstShelfFocus) {
       const f=firstShelfFocus;
@@ -827,6 +860,13 @@ if (bsOnline) {
   const baseDispatch=revisedDispatch;
   const personalArrow=revisedArrow;
   revisedArrow=function(s,el,key) {
+    if(s.root==='feed'&&key==='ArrowDown'){
+      const cards=view.querySelector('.feedGrid'),last=cards?.lastElementChild;
+      if(!last||last.dataset.row===el.dataset.row){
+        if(moreFeed()||currentFeed()?.busy)return true;
+        if(currentFeed()?.error&&firstKey('[data-feed-state] [data-k]'))return true;
+      }
+    }
     if(s.name==='post'){
       if(['ArrowDown','ArrowUp'].includes(key) && el.matches('.postCopy,.replyCard>[data-k]')){
         const down=key==='ArrowDown';

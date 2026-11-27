@@ -16,6 +16,8 @@ const allCats=['知识','科技','数码','影视','动画','游戏','音乐','�
 const homeFeed=['keys','pv'+data.clipIds['48416'],'coffee','orbit','terrain','pinball','cut','pv'+data.clipIds['46089'],'lake','steps','micro','cat',...Object.keys(V)].filter((x,i,a)=>V[x]&&a.indexOf(x)===i);
 const fresh=()=>({type:'browse',root:'home',filter:'rec',focus:bsOnline?'nav-home':'hero-primary',scroll:0});
 let pages=[fresh()],scale=1,toastTimer,batch=0,restoring=false,overlay=null,countdown=null,queuedEpisode=null;
+let focusStructureVersion=0;
+const focusStructures=new WeakMap();
 const current=()=>pages.at(-1),base=()=>pages[0];
 const storagePrefix = bsOnline ? 'bilibs-v1-online-' : 'bilibs-ui-1-';
 function read(key,fallback){
@@ -99,7 +101,7 @@ function rootTo(root){
 }
 function redraw(k,zero=false){const s=current();s.focus=k||document.activeElement?.dataset.k;stashScroll(s);if(zero)s.scroll=0;render()}
 function protect(name,props={}){if(signed)page(name,props);else page('login',{returnTarget:{name,props}})}
-function render(){stopShelfPreview();setTheme(prefs.theme);
+function render(){focusStructureVersion++;stopShelfPreview();setTheme(prefs.theme);
  const s=current();document.body.dataset.surface=getSurface(s);if(s.type==='player'){renderWatch(s);return}stopWatch();player.hidden=true;$('shell').hidden=false;restoring=true;nav();
  document.body.classList.toggle('large',prefs.large);document.body.classList.toggle('reduced',prefs.reduced);
  view.innerHTML=s.type==='detail'?renderDetail(s):s.type==='page'?subPage(s):rootPage(s);
@@ -401,7 +403,7 @@ function drawOverlay(target){stopEpisodePreview();const o=overlay;let title='',d
  if(o.kind==='keyboard'){title='遥控器键盘';desc='输入拼音、拼音首字母或数字，选择候选词或直接搜索。';cls='wideDrawer';const q=o.q||'',tokens=q.trim()?Object.keys(data.pinyin).filter(t=>matches(q,[t])).slice(0,4):['芙莉莲','机械键盘','山川观测','预告'];
  body='<div class="keyBuffer">'+esc(q||'输入关键词')+'</div><div class="candidates">'+tokens.map((t,i)=>op('kc-'+i,'candidates','keyCandidate',t,t)).join('')+'</div><div class="keyGrid">'+'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('').map((k,i)=>op('key-'+k,'keys'+Math.floor(i/9),'keyChar',k,k)).join('')+'</div><div class="keyActions">'+op('key-del','keyActions','keyDel','','删除')+op('key-clear','keyActions','keyClear','','清空')+op('key-go','keyActions','keyGo','','搜索')+'</div>';initial='key-A'}
  if(o.kind==='watch'){const p=watchPanel(o);({title,desc,body,initial,cls}=p)}
- modal.dataset.transport=current().type==='player'?'on':'off';modal.dataset.mode=o.mode||o.kind;modal.dataset.kind=o.kind;modal.dataset.inline=String(!!o.inline);modal.innerHTML=drawer(title,desc,body,cls||'');if(o.inline){const panel=modal.querySelector('.drawer');panel.removeAttribute('aria-modal');panel.setAttribute('role','region')}const n=(target||initial?modal.querySelector('[data-k="'+CSS.escape(target||initial)+'"]'):null)||modal.querySelector('[data-k]');n?.focus({preventScroll:true});n?.scrollIntoView({block:'nearest',inline:'nearest'});if(bsOnline)window.BSEpisodeArt?.observe();
+ focusStructureVersion++;modal.dataset.transport=current().type==='player'?'on':'off';modal.dataset.mode=o.mode||o.kind;modal.dataset.kind=o.kind;modal.dataset.inline=String(!!o.inline);modal.innerHTML=drawer(title,desc,body,cls||'');if(o.inline){const panel=modal.querySelector('.drawer');panel.removeAttribute('aria-modal');panel.setAttribute('role','region')}const n=(target||initial?modal.querySelector('[data-k="'+CSS.escape(target||initial)+'"]'):null)||modal.querySelector('[data-k]');n?.focus({preventScroll:true});n?.scrollIntoView({block:'nearest',inline:'nearest'});if(bsOnline)window.BSEpisodeArt?.observe();
 }
 function setPreference(k,val){prefs[k]=val;speed=prefs.speed;commentsOn=prefs.dm;storePrefs();if(current().type==='player'){video.playbackRate=current().room?1:speed;if(['quality','codec','audio'].includes(k))changeSource();if(k==='fitMode')video.style.objectFit=val;updateControls();paintComments()}else redraw(current().focus)}
 function confirmDo(id){completeOverlay(()=>{if(id==='logout'){signed=false;save('signed',false)}
@@ -501,7 +503,7 @@ function renderWatch(s){const key=playKey(s)+'|'+(s.room||''),w=W[s.id]||V[s.id]
  document.querySelector('.timelineRow').hidden=!!s.room;$('seek').dataset.row='seek';$('pFoot').innerHTML=hints('确定',s.room?'直播控制':'播放 / 暂停')+(s.room?'':hints('← →','在进度条上跳转 5 秒'))+hints('Esc','返回');
  wake(false);updateControls();updateProgress();paintComments();focus(s.focus||(s.room?'toggle':'seek'),false);if(!video.paused)armHud()
 }
-function updateControls(){
+function updateControls(){focusStructureVersion++;
  const s=current();if(s.type!=='player')return;
  const room=R[s.room],work=W[s.id],v=V[s.id],was=$('pControls').contains(document.activeElement)?document.activeElement.dataset.k:null;
  const ctrl=(key,txt,symbol,secondary=false,lit=false)=>b(key,'tools','dockAction',key,(symbol?'<i aria-hidden="true">'+symbol+'</i>':'')+'<span>'+esc(txt)+'</span>','dockKey'+(secondary?' secondaryKey':'')+(lit?' lit':'')+(key==='toggle'?' mainKey':''));
@@ -543,7 +545,7 @@ function autoNext(){const n=nextItem();if(autoNextSuspended||!prefs.autonext||!n
 const dmTexts=['喜欢这一帧的光影','在电视上看正合适','这一段值得再看一遍'];let lastAnim=0;
 function paintComments(){const box=player.querySelector('.comments');if(!activeMedia||!prefs.dm){box.hidden=true;return}box.hidden=false;box.style.opacity=prefs.opacity;const amount=prefs.density;if(box.children.length!==amount){box.innerHTML=dmTexts.slice(0,amount).map((t,i)=>'<span style="top:'+i*40+'px">'+t+'</span>').join('')}
  [...box.children].forEach((n,i)=>{const phase=((video.currentTime||0)+[3,6.1,.6][i])%12;n.style.fontSize=prefs.dmSize+'px';n.style.transform='translateX('+(1435-phase*159)+'px)'})}
-function anim(ms){if(!player.hidden&&ms-lastAnim>40){paintComments();lastAnim=ms}requestAnimationFrame(anim)}requestAnimationFrame(anim);
+function anim(ms){if(!player.hidden&&(bsOnline||ms-lastAnim>40)){paintComments();lastAnim=ms}requestAnimationFrame(anim)}requestAnimationFrame(anim);
 video.addEventListener('loadedmetadata',()=>{if(!activeMedia)return;mediaDuration=video.duration;const t=previewSeek;previewSeek=null;if(Number.isFinite(t)&&t>0)video.currentTime=Math.min(t,Math.max(0,mediaDuration-.05));video.playbackRate=current().room?1:prefs.speed;updateProgress();if(startPaused)video.pause()});
 video.addEventListener('seeked',()=>{updateProgress();updateControls();paintComments()});
 video.addEventListener('timeupdate',updateProgress);video.addEventListener('play',()=>{
@@ -696,8 +698,26 @@ function detailsPanel(){
  return {title:'播放信息',desc:s.room?'本地直播演示片源':'当前实际使用的本地片源',body,initial:s.room?undefined:'ap-codec'}
 }
 
-function moveFocus(el,dir,scope){const elements=[...scope.querySelectorAll('[data-k]')].filter(n=>!n.disabled&&n.offsetWidth&&n.offsetHeight&&!n.closest('[hidden]'));if(!elements.length)return;
- if(!elements.includes(el)){focus(elements[0].dataset.k);return}const groups=new Map();for(const n of elements){const key=n.dataset.row||'single';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(n)}
+// Reuse row membership until controls change; a D-pad key must not measure
+// every card in a long list. Geometry is needed only for the destination row.
+function focusRows(scope){
+ let cached=bsOnline&&focusStructures.get(scope);
+ if(cached&&cached.version===focusStructureVersion)return cached;
+ const elements=[...scope.querySelectorAll('[data-k]')].filter(n=>!n.disabled&&n.offsetWidth&&n.offsetHeight&&!n.closest('[hidden]'));
+ const groups=new Map();for(const n of elements){const key=n.dataset.row||'single';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(n)}
+ cached={elements,groups,version:focusStructureVersion};if(bsOnline)focusStructures.set(scope,cached);return cached;
+}
+function appendRenderedList(existing,markup){
+ if(!bsOnline||!existing||!document.createElement||!existing.matches('.grid,.roomGrid,.subGrid,.posterGrid,.feedGrid'))return false;
+ const template=document.createElement('template');template.innerHTML=markup;
+ const next=template.content.firstElementChild;if(!next||next.className!==existing.className)return false;
+ const old=[...existing.children],fresh=[...next.children],key=n=>n.dataset.k||n.querySelector('[data-k]')?.dataset.k;
+ if(fresh.length<old.length||old.some((n,i)=>!key(n)||key(n)!==key(fresh[i])))return false;
+ if(fresh.length>old.length){existing.append(...fresh.slice(old.length));focusStructureVersion++;}
+ return true;
+}
+function moveFocus(el,dir,scope){const {elements,groups}=focusRows(scope);if(!elements.length)return;
+ if(!elements.includes(el)){focus(elements[0].dataset.k);return}
  const rows=[...groups.values()],idx=rows.findIndex(r=>r.includes(el)),r=rows[idx],col=r.indexOf(el),x=n=>{const b=n.getBoundingClientRect();return b.x+b.width/2},to=n=>{if(!n)return;n.focus({preventScroll:true});if(overlay)n.scrollIntoView({block:'nearest'});else bring(n)};
  if(dir==='ArrowLeft'||dir==='ArrowRight'){to(r[col+(dir==='ArrowLeft'?-1:1)]);return}
  const dr=dir==='ArrowDown'?1:-1,line=rows[idx+dr];if(!line)return;

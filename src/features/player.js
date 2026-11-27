@@ -482,38 +482,40 @@ if (bsOnline) {
     poll();
   }
   paintComments = function() {
-    const p=session, box=player.querySelector('.comments');
-    if (!p||!p.ready||!prefs.dm||!p.messages.length) { box.hidden=true; return; }
-    box.hidden=false; box.style.opacity=prefs.opacity;
-    const now=p.route.room?performance.now()/1000:position(p), a=p.messages;
-    let lo=0,hi=a.length;
-    while(lo<hi) { const mid=(lo+hi)>>>1; if(a[mid].time<=now)lo=mid+1;else hi=mid; }
-    const limit=Math.min(3,Math.max(1,prefs.density)), rows=[];
-    for(let i=lo-1;i>=0&&rows.length<limit&&now-a[i].time<8;i--) {
-      const m=a[i],lane=i%limit;
-      if(rows.some(row=>row.lane===lane))continue;
-      rows.push({m,lane,i});
+    const p=session,box=player.querySelector('.comments');
+    if(!p||!p.ready||!prefs.dm||!p.messages.length){box.hidden=true;if(p)p.dmState=null;box.replaceChildren();return;}
+    const now=p.route.room?performance.now()/1000:position(p),messages=p.messages;
+    const lanes=Math.min(3,Math.max(1,prefs.density)),size=prefs.dmSize;
+    box.hidden=false;
+    let state=p.dmState;
+    if(!state||state.messages!==messages||state.lanes!==lanes||state.size!==size||now<state.last-.1||now-state.last>1.2){
+      let lo=0,hi=messages.length;
+      while(lo<hi){const mid=(lo+hi)>>>1;if(messages[mid].time<now-8)lo=mid+1;else hi=mid;}
+      state=p.dmState={messages,lanes,size,cursor:lo,active:[],last:now,width:box.clientWidth||1440,height:box.clientHeight||600};
+      box.replaceChildren();
     }
-    const key=rows.map(row=>row.i+'/'+row.m.time).join(',');
-    if (p.paintKey!==key) {
-      p.paintKey=key; box.replaceChildren();
-      for (const row of rows) {
-        const span=document.createElement('span'); span.textContent=row.m.text;
-        box.append(span);
-      }
+    state.last=now;box.style.opacity=prefs.opacity;
+    state.active=state.active.filter(row=>{if(row.end>now)return true;row.node.remove();return false;});
+    while(state.cursor<messages.length&&messages[state.cursor].time<=now){
+      const m=messages[state.cursor++],mode=Number(m.mode),fixed=mode===4||mode===5,duration=fixed?5:8;
+      if(m.time+duration<=now)continue;
+      const band=mode===4?'bottom':'top';
+      let lane=0;while(lane<lanes&&state.active.some(row=>row.band===band&&row.lane===lane))lane++;
+      if(lane===lanes)continue;
+      const n=document.createElement('span');n.textContent=m.text;
+      n.style.fontSize=size+'px';n.style.top=(mode===4?Math.max(0,state.height-(lane+1)*(size+16)):lane*(size+16))+'px';
+      n.style.color=typeof m.color==='string'&&/^#[\da-f]{6}$/i.test(m.color)?m.color:Number.isInteger(m.color)?'#'+(m.color&0xffffff).toString(16).padStart(6,'0'):'#fff';
+      box.append(n);
+      state.active.push({node:n,width:n.offsetWidth,start:m.time,end:m.time+duration,mode,band,lane});
     }
-    [...box.children].forEach((n,j)=>{
-      const {m,lane}=rows[j];
-      if(!m)return;
-      const fraction=(now-m.time)/8,mode=Number(m.mode);
-      n.style.fontSize=prefs.dmSize+'px';
-      n.style.top=lane*42+'px';
-      const color = typeof m.color==='string'&&/^#[\da-f]{6}$/i.test(m.color) ? m.color : Number.isInteger(m.color) ? '#'+(m.color&0xffffff).toString(16).padStart(6,'0') : '#fff';
-      n.style.color=color;
-      n.style.transform=mode===4||mode===5?'translateX('+((1440-n.offsetWidth)/2)+'px)':
-        'translateX('+(mode===6?-n.offsetWidth+fraction*(1440+n.offsetWidth):1440-fraction*(1440+n.offsetWidth))+'px)';
-    });
+    for(const row of state.active){
+      const fraction=(now-row.start)/8;
+      const x=row.mode===4||row.mode===5?(state.width-row.width)/2:row.mode===6?-row.width+fraction*(state.width+row.width):state.width-fraction*(state.width+row.width);
+      row.node.style.transform='translate3d('+x+'px,0,0)';
+    }
   };
+  window.addEventListener('resize',()=>{if(session)session.dmState=null;});
+
   rememberPlayback = function(forceCloud=false) {
     const p=session;
     if (!p?.ready||!p.presented||p.route.room||!p.ids?.cid||video.readyState<1) return;

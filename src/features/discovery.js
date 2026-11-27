@@ -105,11 +105,13 @@ if (bsOnline) {
   const dcPaint = paint;
   paint = (container, url, title, cls) => {
     const original=dcSafeImage(url);
-    const width=({rail:384,section:384,folio:384,episode:384,recommendation:384,cinema:1280,feature:1280})[container];
-    const src=width && original && !original.includes('@')?original+'@'+width+'w.webp':original;
+    const hero=['spotlight','cinema','feature'].includes(container);
+    const physical=Math.max(1920,Math.min(3840,Math.ceil((innerWidth*(window.devicePixelRatio||1))/640)*640));
+    const width=hero?physical:({tile:640,rail:384,section:640,folio:384,episode:384,recommendation:384,room:640,dynamic:640})[container];
+    const src=width&&original?original.split('@')[0]+'@'+width+'w'+(hero?'_90q':'')+'.webp':original;
     let markup=dcPaint(container,src,title,cls);
     if(cls?.includes('portraitFallback'))markup=markup.replace('<span ', '<span style="--poster-art:url('+esc(JSON.stringify(original))+')" ');
-    if (['tile','folio','section','room','episode','recommendation'].includes(container)) markup=markup.replace('<img ','<img loading="lazy" decoding="async" ');
+    if (['tile','folio','section','room','episode','recommendation','dynamic'].includes(container)) markup=markup.replace('<img ','<img loading="lazy" decoding="async" ');
     // Keep the focused artwork ahead of thumbnails competing for TV bandwidth.
     return container === 'spotlight' || container === 'cinema'
       ? markup.replace('<img ', '<img fetchpriority="high" ')
@@ -213,9 +215,15 @@ if (bsOnline) {
       dcFlush = false;
       if (current() !== dcVisible.page || !dcVisible.keys.has(entry.key) || entry.viewer !== dcOwner()) return;
       if (overlay) {dcDeferredPage = current(); return;}
+      const s=current();
+      if(entry.op==='recommend'&&s.root==='home'&&s.filter==='rec'&&s.recLoading===entry.params?.page){
+        if(entry.value&&!entry.error)afterRender(s);
+        else if($('recMore')){$('recMore').innerHTML=dcStatus(entry,'更多推荐');focusStructureVersion++;}
+        return;
+      }
       const liveFocus = document.activeElement?.dataset.k;
       const field = document.activeElement?.id === 'query' ? [document.activeElement.selectionStart,document.activeElement.selectionEnd] : null;
-      redraw(liveFocus || current().focus);
+      if(!dcPatchStream(entry))redraw(liveFocus || current().focus);
       if (field && document.activeElement?.id === 'query') document.activeElement.setSelectionRange(...field);
     });
   }
@@ -254,7 +262,8 @@ if (bsOnline) {
       entry = null;
     }
     if (!entry) {
-      entry = {key,op,viewer:owner,tag:'d'+(++dcSequence),value:null,pending:null,error:null,time:0,load:options.load || (() => window.BSApi.call(op,params))};
+      entry = {key,op,params,viewer:owner,tag:'d'+(++dcSequence),value:null,pending:null,error:null,time:0,load:options.load || (() => window.BSApi.call(op,params))};
+      if(op==='recommend'&&options.initial){entry.value=options.initial;entry.time=Date.now();}
       if(op==='weekly'){
         const saved=read('weekly',null);
         if(saved?.value?.items?.length && saved.time){entry.value=saved.value;entry.time=saved.time}
@@ -265,7 +274,7 @@ if (bsOnline) {
     }
     if (options.load && !entry.pending) entry.load=options.load;
     if (options.watch !== false) dcVisible.keys.add(key);
-    if (!entry.error && (!entry.value || Date.now()-entry.time > (options.ttl ?? 5*60_000))) dcLaunch(entry);
+    if (!entry.error && (!entry.value || Date.now()-entry.time > (options.ttl ?? (op==='recommend'?Infinity:5*60_000)))) dcLaunch(entry);
     if (dcEntries.size > 160) {
       for (const old of dcEntries.values()) {
         if (old.pending || dcVisible.keys.has(old.key)) continue;
@@ -332,12 +341,23 @@ if (bsOnline) {
   function dcMore(entry) {
     if(!entry?.value?.next || entry.pending || entry.error)return false;
     dcLaunch(entry);
-    redraw(document.activeElement?.dataset.k);
+    const stream=view.querySelector('[data-stream="'+entry.tag+'"]');
+    if(stream)stream.setAttribute('aria-busy','true');
     return true;
   }
   function dcStreamRows(entry, label, draw, message) {
-    return '<div data-stream="'+entry.tag+'">'+(entry.value?draw(dcItems(entry)):'')+dcStatus(entry,label)+
-      (entry.value&&!entry.value.items.length?empty(message):'')+'</div>';
+    entry.streamRender={label,draw,message};
+    return '<div data-stream="'+entry.tag+'" aria-busy="'+!!entry.pending+'"><div data-stream-items>'+(entry.value?draw(dcItems(entry)):'')+'</div><div data-stream-state>'+dcStatus(entry,label)+
+      (entry.value&&!entry.value.items.length?empty(message):'')+'</div></div>';
+  }
+  function dcPatchStream(entry){
+    const config=entry.streamRender,stream=config&&view.querySelector('[data-stream="'+entry.tag+'"]');
+    if(!stream||!entry.value)return false;
+    const host=stream.querySelector('[data-stream-items]');
+    if(!appendRenderedList(host?.firstElementChild,config.draw(dcItems(entry))))return false;
+    const status=stream.querySelector('[data-stream-state]'),html=dcStatus(entry,config.label);
+    if(status.innerHTML!==html){status.innerHTML=html;focusStructureVersion++;}
+    stream.setAttribute('aria-busy',String(!!entry.pending));stashScroll(current());afterRender(current());return true;
   }
   function dcPager(s, slot, entry) {
     const p = dcPageNumber(s,slot);
@@ -384,7 +404,10 @@ if (bsOnline) {
     }
     const films = dcRandomHome();
     const picks = dcItems(films);
-    const rec = dcQuery('recommend',{page:s.recBatch || 1});
+    const owner=dcOwner();
+    if(s.recSnapshot&&s.recSnapshot.viewer!==owner){for(const k of ['recSnapshot','recExtra','recSeen','recLoading','recPrevious','recBatch','recLast','recNext'])delete s[k];}
+    const rec = dcQuery('recommend',{page:s.recBatch||1},{initial:s.recSnapshot?.viewer===owner&&s.recSnapshot.page===(s.recBatch||1)?s.recSnapshot.value:undefined});
+    if(rec.value&&!rec.error&&!rec.pending)s.recSnapshot={viewer:owner,page:s.recBatch||1,value:rec.value};
     const prev = s.recPrevious && dcKeys.get(s.recPrevious);
     const shown = prev && prev.viewer === dcOwner() && (!rec.value || rec.pending || rec.error) ? prev : rec;
     const caption = '<span class="eyeline"><i></i>影视精选</span>';
@@ -408,15 +431,15 @@ if (bsOnline) {
     const more=s.recLoading && dcQuery('recommend',{page:s.recLoading});
     const cards = dcStatus(rec,'推荐',shown===rec)+oldNote+(grid ||
       (rec.value?empty(rec.value.items?.length && s.recSeen?.length?'本批没有新的推荐视频':'暂无推荐视频'):''));
-    return wrap(tabs+banner+group('为你推荐',cards+(more?dcStatus(more,'更多推荐'):''),b('refresh','refresh','refresh','','↻　换一批','textBtn')));
+    return wrap(tabs+banner+group('为你推荐','<div id="recCards">'+cards+'</div><div id="recMore">'+(more?dcStatus(more,'更多推荐'):'')+'</div>',b('refresh','refresh','refresh','','↻　换一批','textBtn')));
   };
   function appendRecommendations(s){
     if (s.root!=='home'||s.filter!=='rec'||overlay||s.recPrevious||s.recLoading) return;
     if(!s.recNext)return;
     const p=s.recLoading=s.recNext===true?(s.recLast||s.recBatch||1)+1:Number(s.recNext);
     if (!(p>(s.recLast||s.recBatch||1))){delete s.recLoading;return}
-    dcQuery('recommend',{page:p});
-    redraw(document.activeElement?.dataset.k);
+    const entry=dcQuery('recommend',{page:p});
+    if($('recMore')){$('recMore').innerHTML=dcStatus(entry,'更多推荐');focusStructureVersion++;}
   }
   function atRecEnd(s){
     return s.root==='home' && s.filter==='rec' && view.scrollTop>0 &&
@@ -498,7 +521,9 @@ if (bsOnline) {
         const extra=new Set(s.recExtra||[]);
         for(const v of dcItems(e))if(v.kind==='video')extra.add(v.id);
         s.recExtra=[...extra];s.recLast=page;s.recNext=e.value.next;delete s.recLoading;
-        redraw(document.activeElement?.dataset.k);
+        const all=[...new Set([...(s.recSnapshot?.value.items||[]).map(x=>dcRegister(x)?.id).filter(id=>!s.recSeen?.includes(id)),...s.recExtra])].map(id=>V[id]).filter(Boolean);
+        if(appendRenderedList(view.querySelector('#recCards .grid'),tileList(all,'rec'))){const more=$('recMore');if(more)more.replaceChildren();stashScroll(s);observeEpisodeShots();}
+        else redraw(document.activeElement?.dataset.k);
         return;
       }
     }
@@ -577,7 +602,6 @@ if (bsOnline) {
   };
   liveScreen = function(s) {
     dcBegin(s);
-    const directory = dcQuery('liveAreas');
     const options = [['rec','推荐'],['following','关注'],['knowledge','知识'],['game','游戏'],['music','音乐'],['life','生活']];
     if (!options.some(([k])=>k===s.area)) s.area='rec';
     const head=top('直播')+subTabs(options,s.area,'area','area');
@@ -588,6 +612,7 @@ if (bsOnline) {
       const params=s.area==='following'?{followed:true}:{};
       rooms=dcContinuous(slot,params,page=>window.BSApi.call('liveRooms',{...params,page}));
     } else {
+      const directory = dcQuery('liveAreas');
       if (!directory.value) return head+dcStatus(directory,'直播分区');
       const pattern={knowledge:/知识|学习|科普|百科/,game:/游戏|网游|手游|电竞|单机/,music:/音乐|唱见|唱歌|演奏|乐器|弹唱/,life:/生活|日常/}[s.area];
       const variants=[];
@@ -1120,8 +1145,9 @@ if (bsOnline) {
   const dcBaseArrows=revisedArrow;
   revisedArrow=function(s,el,key) {
     if(key==='ArrowDown' && dcActiveStream && el.closest('[data-stream]')){
-      const rows=[...el.closest('[data-stream]').querySelectorAll('button[data-row]')].filter(n=>!n.disabled && !n.closest('.stateNote'));
-      if(rows.at(-1)?.dataset.row===el.dataset.row && dcMore(dcActiveStream))return true;
+      const last=el.closest('[data-stream]').querySelector('[data-stream-items]')?.firstElementChild?.lastElementChild;
+      const target=last?.matches('button[data-row]')?last:last?.querySelector('button[data-row]');
+      if(target?.dataset.row===el.dataset.row && dcMore(dcActiveStream))return true;
     }
     if (s.root==='home' && s.filter==='rec') {
       const r=el.dataset.row,down=key==='ArrowDown',up=key==='ArrowUp';

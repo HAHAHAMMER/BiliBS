@@ -45,7 +45,10 @@ window.BSApi={call:async(op,p)=>{
  }
  if(op==='liveRoom')return P.room;
  if(op==='livePlay')return {liveStatus:1,qualities:[{id:1,label:'原画'}],streams:[{url:window.testMode==='flv'?'liveflv':'playlist',protocol:window.testMode==='flv'?'http_stream':'http_hls',format:window.testMode==='flv'?'flv':'ts',codec:'avc',quality:1,line:1}]};
- if(op==='danmaku')return {items:[{time:0,text:'同步评论',mode:1,color:16777215}]};
+ if(op==='danmaku')return {items:window.testMode==='danmaku'?[
+  {time:0,text:'moving',mode:1},{time:0,text:'fixed-top',mode:5},{time:0,text:'fixed-bottom',mode:4},{time:0,text:'reverse',mode:6},
+  ...Array.from({length:80},(_,i)=>({time:.2+i*.03,text:'dense-'+i,mode:i%3?1:5})),{time:8.9,text:'seek-marker',mode:4}
+ ]:[{time:0,text:'同步评论',mode:1,color:16777215}]};
  if(op==='liveChat')return {items:[]};
  if(op==='related')return {items:[P.next]};
  if(op==='reportProgress')return {ok:true};
@@ -129,10 +132,10 @@ def run(tmp):
         threading.Thread(target=srv.serve_forever,daemon=True).start()
         browser=pw.chromium.launch(executable_path=os.environ.get('BILIBS_CHROME') or shutil.which('chromium'),args=['--no-sandbox','--autoplay-policy=no-user-gesture-required'])
         results={}; errors=[]
-        for mode in ['dash','file','resume-dash','resume-file','resume-paused','hls','flv','fallback','single','bad-audio','deny','ep','quality','queue','stack']:
+        for mode in ['dash','file','danmaku','resume-dash','resume-file','resume-paused','hls','flv','fallback','single','bad-audio','deny','ep','quality','queue','stack']:
             tab=browser.new_page(); tab.on('pageerror',lambda e:errors.append(str(e)))
             tab.goto('http://127.0.0.1:'+str(srv.server_port)+'/')
-            tab.evaluate('(m)=>{window.testMode=m;if(m.startsWith("resume-"))window.BSNative={};P.play(m==="ep"?"77":["hls","flv"].includes(m)?"42":"test-video",0,m.startsWith("resume-")?{at:4,restorePaused:m==="resume-paused"}:["hls","flv"].includes(m)?{room:"42"}:{})}',mode)
+            tab.evaluate('(m)=>{window.testMode=m;if(m==="danmaku")P.pref("density",3);if(m.startsWith("resume-"))window.BSNative={};P.play(m==="ep"?"77":["hls","flv"].includes(m)?"42":"test-video",0,m.startsWith("resume-")?{at:4,restorePaused:m==="resume-paused"}:["hls","flv"].includes(m)?{room:"42"}:{})}',mode)
             try:
                 if mode in ['single','bad-audio','deny']:
                     tab.wait_for_selector('#mediaError:visible',timeout=35000)
@@ -147,6 +150,27 @@ def run(tmp):
                     tab.wait_for_function("!document.querySelector('#player').classList.contains('loading')&&document.getElementById('video').currentTime>.45 && document.getElementById('video').getVideoPlaybackQuality().totalVideoFrames>0",timeout=40000)
                     detail=tab.evaluate("""()=>{const v=document.getElementById('video');return {time:v.currentTime,frames:v.getVideoPlaybackQuality().totalVideoFrames,audioBytes:v.webkitAudioDecodedByteCount,status:P.status()}}""")
                     assert detail['audioBytes']>0,detail
+                    if mode=='danmaku':
+                        tab.wait_for_selector('.comments span:text-is("moving")')
+                        tab.evaluate('window.movingNode=[...document.querySelectorAll(".comments span")].find(n=>n.textContent==="moving")')
+                        x=tab.evaluate('new DOMMatrix(getComputedStyle(movingNode).transform).m41')
+                        tab.wait_for_function('video.currentTime>2')
+                        assert tab.evaluate('movingNode.isConnected')
+                        assert tab.evaluate('new DOMMatrix(getComputedStyle(movingNode).transform).m41')<x
+                        assert tab.locator('.comments span:text-is("fixed-top")').count()==1
+                        top=tab.locator('.comments span:text-is("fixed-top")').evaluate('n=>n.offsetTop')
+                        bottom=tab.locator('.comments span:text-is("fixed-bottom")').evaluate('n=>n.offsetTop')
+                        assert bottom>top+200
+                        tab.evaluate('document.dispatchEvent(new KeyboardEvent("keydown",{key:"MediaPause",bubbles:true,cancelable:true}))');tab.wait_for_function('video.paused')
+                        paused=tab.evaluate('movingNode.style.transform');tab.wait_for_timeout(200)
+                        assert tab.evaluate('movingNode.style.transform')==paused
+                        tab.evaluate('document.dispatchEvent(new KeyboardEvent("keydown",{key:"MediaPlay",bubbles:true,cancelable:true}))');tab.wait_for_function('video.currentTime>4.8')
+                        assert tab.locator('.comments span:text-is("fixed-top")').count()==1
+                        tab.wait_for_function('video.currentTime>5.2')
+                        assert tab.locator('.comments span:text-is("fixed-top")').count()==0
+                        tab.evaluate('P.jump(9)');tab.wait_for_selector('.comments span:text-is("seek-marker")')
+                        assert not tab.locator('.comments span:text-is("moving")').count()
+                        detail.update({'stableMovingNodeThroughDenseTraffic':True,'fixedLifetimeSeconds':5,'bottomPlacement':True,'pauseAndSeek':True})
                     if mode.startswith('resume-'):
                         assert tab.evaluate('video.currentTime>=4 && !video.muted')
                         assert tab.evaluate('video.paused')==(mode=='resume-paused')

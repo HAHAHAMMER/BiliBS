@@ -115,7 +115,7 @@ def main():
             has("推荐第1批")
             assert key("rec-BV1").count()==1
             pg.wait_for_function("document.querySelector('.opening img')?.naturalWidth > 0")
-            assert any("/__bs/image/i0.hdslb.com/bfs/archive/test-art.png@120w_90h.webp" in v for v in paths)
+            assert any("/__bs/image/i0.hdslb.com/bfs/archive/test-art.png@640w.webp" in v for v in paths)
             tab("nav-home")
             pg.keyboard.press("ArrowDown")
             assert pg.evaluate("document.activeElement.dataset.k")=="homeTab-rec"

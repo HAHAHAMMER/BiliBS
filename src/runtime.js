@@ -16,6 +16,8 @@ const allCats=['知识','科技','数码','影视','动画','游戏','音乐','�
 const homeFeed=['keys','pv'+data.clipIds['48416'],'coffee','orbit','terrain','pinball','cut','pv'+data.clipIds['46089'],'lake','steps','micro','cat',...Object.keys(V)].filter((x,i,a)=>V[x]&&a.indexOf(x)===i);
 const fresh=()=>({type:'browse',root:'home',filter:'rec',focus:bsOnline?'nav-home':'hero-primary',scroll:0});
 let pages=[fresh()],scale=1,toastTimer,batch=0,restoring=false,overlay=null,countdown=null,queuedEpisode=null;
+let focusStructureVersion=0;
+const focusStructures=new WeakMap();
 const current=()=>pages.at(-1),base=()=>pages[0];
 const storagePrefix = bsOnline ? 'bilibs-v1-online-' : 'bilibs-ui-1-';
 function read(key,fallback){
@@ -99,7 +101,7 @@ function rootTo(root){
 }
 function redraw(k,zero=false){const s=current();s.focus=k||document.activeElement?.dataset.k;stashScroll(s);if(zero)s.scroll=0;render()}
 function protect(name,props={}){if(signed)page(name,props);else page('login',{returnTarget:{name,props}})}
-function render(){stopShelfPreview();setTheme(prefs.theme);
+function render(){focusStructureVersion++;stopShelfPreview();setTheme(prefs.theme);
  const s=current();document.body.dataset.surface=getSurface(s);if(s.type==='player'){renderWatch(s);return}stopWatch();player.hidden=true;$('shell').hidden=false;restoring=true;nav();
  document.body.classList.toggle('large',prefs.large);document.body.classList.toggle('reduced',prefs.reduced);
  view.innerHTML=s.type==='detail'?renderDetail(s):s.type==='page'?subPage(s):rootPage(s);
@@ -401,7 +403,7 @@ function drawOverlay(target){stopEpisodePreview();const o=overlay;let title='',d
  if(o.kind==='keyboard'){title='遥控器键盘';desc='输入拼音、拼音首字母或数字，选择候选词或直接搜索。';cls='wideDrawer';const q=o.q||'',tokens=q.trim()?Object.keys(data.pinyin).filter(t=>matches(q,[t])).slice(0,4):['芙莉莲','机械键盘','山川观测','预告'];
  body='<div class="keyBuffer">'+esc(q||'输入关键词')+'</div><div class="candidates">'+tokens.map((t,i)=>op('kc-'+i,'candidates','keyCandidate',t,t)).join('')+'</div><div class="keyGrid">'+'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('').map((k,i)=>op('key-'+k,'keys'+Math.floor(i/9),'keyChar',k,k)).join('')+'</div><div class="keyActions">'+op('key-del','keyActions','keyDel','','删除')+op('key-clear','keyActions','keyClear','','清空')+op('key-go','keyActions','keyGo','','搜索')+'</div>';initial='key-A'}
  if(o.kind==='watch'){const p=watchPanel(o);({title,desc,body,initial,cls}=p)}
- modal.dataset.transport=current().type==='player'?'on':'off';modal.dataset.mode=o.mode||o.kind;modal.dataset.kind=o.kind;modal.dataset.inline=String(!!o.inline);modal.innerHTML=drawer(title,desc,body,cls||'');if(o.inline){const panel=modal.querySelector('.drawer');panel.removeAttribute('aria-modal');panel.setAttribute('role','region')}const n=(target||initial?modal.querySelector('[data-k="'+CSS.escape(target||initial)+'"]'):null)||modal.querySelector('[data-k]');n?.focus({preventScroll:true});n?.scrollIntoView({block:'nearest',inline:'nearest'});if(bsOnline)window.BSEpisodeArt?.observe();
+ focusStructureVersion++;modal.dataset.transport=current().type==='player'?'on':'off';modal.dataset.mode=o.mode||o.kind;modal.dataset.kind=o.kind;modal.dataset.inline=String(!!o.inline);modal.innerHTML=drawer(title,desc,body,cls||'');if(o.inline){const panel=modal.querySelector('.drawer');panel.removeAttribute('aria-modal');panel.setAttribute('role','region')}const n=(target||initial?modal.querySelector('[data-k="'+CSS.escape(target||initial)+'"]'):null)||modal.querySelector('[data-k]');n?.focus({preventScroll:true});n?.scrollIntoView({block:'nearest',inline:'nearest'});if(bsOnline)window.BSEpisodeArt?.observe();
 }
 function setPreference(k,val){prefs[k]=val;speed=prefs.speed;commentsOn=prefs.dm;storePrefs();if(current().type==='player'){video.playbackRate=current().room?1:speed;if(['quality','codec','audio'].includes(k))changeSource();if(k==='fitMode')video.style.objectFit=val;updateControls();paintComments()}else redraw(current().focus)}
 function confirmDo(id){completeOverlay(()=>{if(id==='logout'){signed=false;save('signed',false)}
@@ -501,7 +503,7 @@ function renderWatch(s){const key=playKey(s)+'|'+(s.room||''),w=W[s.id]||V[s.id]
  document.querySelector('.timelineRow').hidden=!!s.room;$('seek').dataset.row='seek';$('pFoot').innerHTML=hints('确定',s.room?'直播控制':'播放 / 暂停')+(s.room?'':hints('← →','在进度条上跳转 5 秒'))+hints('Esc','返回');
  wake(false);updateControls();updateProgress();paintComments();focus(s.focus||(s.room?'toggle':'seek'),false);if(!video.paused)armHud()
 }
-function updateControls(){
+function updateControls(){focusStructureVersion++;
  const s=current();if(s.type!=='player')return;
  const room=R[s.room],work=W[s.id],v=V[s.id],was=$('pControls').contains(document.activeElement)?document.activeElement.dataset.k:null;
  const ctrl=(key,txt,symbol,secondary=false,lit=false)=>b(key,'tools','dockAction',key,(symbol?'<i aria-hidden="true">'+symbol+'</i>':'')+'<span>'+esc(txt)+'</span>','dockKey'+(secondary?' secondaryKey':'')+(lit?' lit':'')+(key==='toggle'?' mainKey':''));
@@ -543,7 +545,7 @@ function autoNext(){const n=nextItem();if(autoNextSuspended||!prefs.autonext||!n
 const dmTexts=['喜欢这一帧的光影','在电视上看正合适','这一段值得再看一遍'];let lastAnim=0;
 function paintComments(){const box=player.querySelector('.comments');if(!activeMedia||!prefs.dm){box.hidden=true;return}box.hidden=false;box.style.opacity=prefs.opacity;const amount=prefs.density;if(box.children.length!==amount){box.innerHTML=dmTexts.slice(0,amount).map((t,i)=>'<span style="top:'+i*40+'px">'+t+'</span>').join('')}
  [...box.children].forEach((n,i)=>{const phase=((video.currentTime||0)+[3,6.1,.6][i])%12;n.style.fontSize=prefs.dmSize+'px';n.style.transform='translateX('+(1435-phase*159)+'px)'})}
-function anim(ms){if(!player.hidden&&ms-lastAnim>40){paintComments();lastAnim=ms}requestAnimationFrame(anim)}requestAnimationFrame(anim);
+function anim(ms){if(!player.hidden&&(bsOnline||ms-lastAnim>40)){paintComments();lastAnim=ms}requestAnimationFrame(anim)}requestAnimationFrame(anim);
 video.addEventListener('loadedmetadata',()=>{if(!activeMedia)return;mediaDuration=video.duration;const t=previewSeek;previewSeek=null;if(Number.isFinite(t)&&t>0)video.currentTime=Math.min(t,Math.max(0,mediaDuration-.05));video.playbackRate=current().room?1:prefs.speed;updateProgress();if(startPaused)video.pause()});
 video.addEventListener('seeked',()=>{updateProgress();updateControls();paintComments()});
 video.addEventListener('timeupdate',updateProgress);video.addEventListener('play',()=>{
@@ -696,8 +698,26 @@ function detailsPanel(){
  return {title:'播放信息',desc:s.room?'本地直播演示片源':'当前实际使用的本地片源',body,initial:s.room?undefined:'ap-codec'}
 }
 
-function moveFocus(el,dir,scope){const elements=[...scope.querySelectorAll('[data-k]')].filter(n=>!n.disabled&&n.offsetWidth&&n.offsetHeight&&!n.closest('[hidden]'));if(!elements.length)return;
- if(!elements.includes(el)){focus(elements[0].dataset.k);return}const groups=new Map();for(const n of elements){const key=n.dataset.row||'single';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(n)}
+// Reuse row membership until controls change; a D-pad key must not measure
+// every card in a long list. Geometry is needed only for the destination row.
+function focusRows(scope){
+ let cached=bsOnline&&focusStructures.get(scope);
+ if(cached&&cached.version===focusStructureVersion)return cached;
+ const elements=[...scope.querySelectorAll('[data-k]')].filter(n=>!n.disabled&&n.offsetWidth&&n.offsetHeight&&!n.closest('[hidden]'));
+ const groups=new Map();for(const n of elements){const key=n.dataset.row||'single';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(n)}
+ cached={elements,groups,version:focusStructureVersion};if(bsOnline)focusStructures.set(scope,cached);return cached;
+}
+function appendRenderedList(existing,markup){
+ if(!bsOnline||!existing||!document.createElement||!existing.matches('.grid,.roomGrid,.subGrid,.posterGrid,.feedGrid'))return false;
+ const template=document.createElement('template');template.innerHTML=markup;
+ const next=template.content.firstElementChild;if(!next||next.className!==existing.className)return false;
+ const old=[...existing.children],fresh=[...next.children],key=n=>n.dataset.k||n.querySelector('[data-k]')?.dataset.k;
+ if(fresh.length<old.length||old.some((n,i)=>!key(n)||key(n)!==key(fresh[i])))return false;
+ if(fresh.length>old.length){existing.append(...fresh.slice(old.length));focusStructureVersion++;}
+ return true;
+}
+function moveFocus(el,dir,scope){const {elements,groups}=focusRows(scope);if(!elements.length)return;
+ if(!elements.includes(el)){focus(elements[0].dataset.k);return}
  const rows=[...groups.values()],idx=rows.findIndex(r=>r.includes(el)),r=rows[idx],col=r.indexOf(el),x=n=>{const b=n.getBoundingClientRect();return b.x+b.width/2},to=n=>{if(!n)return;n.focus({preventScroll:true});if(overlay)n.scrollIntoView({block:'nearest'});else bring(n)};
  if(dir==='ArrowLeft'||dir==='ArrowRight'){to(r[col+(dir==='ArrowLeft'?-1:1)]);return}
  const dr=dir==='ArrowDown'?1:-1,line=rows[idx+dr];if(!line)return;
@@ -1208,11 +1228,13 @@ if (bsOnline) {
   const dcPaint = paint;
   paint = (container, url, title, cls) => {
     const original=dcSafeImage(url);
-    const width=({rail:384,section:384,folio:384,episode:384,recommendation:384,cinema:1280,feature:1280})[container];
-    const src=width && original && !original.includes('@')?original+'@'+width+'w.webp':original;
+    const hero=['spotlight','cinema','feature'].includes(container);
+    const physical=Math.max(1920,Math.min(3840,Math.ceil((innerWidth*(window.devicePixelRatio||1))/640)*640));
+    const width=hero?physical:({tile:640,rail:384,section:640,folio:384,episode:384,recommendation:384,room:640,dynamic:640})[container];
+    const src=width&&original?original.split('@')[0]+'@'+width+'w'+(hero?'_90q':'')+'.webp':original;
     let markup=dcPaint(container,src,title,cls);
     if(cls?.includes('portraitFallback'))markup=markup.replace('<span ', '<span style="--poster-art:url('+esc(JSON.stringify(original))+')" ');
-    if (['tile','folio','section','room','episode','recommendation'].includes(container)) markup=markup.replace('<img ','<img loading="lazy" decoding="async" ');
+    if (['tile','folio','section','room','episode','recommendation','dynamic'].includes(container)) markup=markup.replace('<img ','<img loading="lazy" decoding="async" ');
     // Keep the focused artwork ahead of thumbnails competing for TV bandwidth.
     return container === 'spotlight' || container === 'cinema'
       ? markup.replace('<img ', '<img fetchpriority="high" ')
@@ -1316,9 +1338,15 @@ if (bsOnline) {
       dcFlush = false;
       if (current() !== dcVisible.page || !dcVisible.keys.has(entry.key) || entry.viewer !== dcOwner()) return;
       if (overlay) {dcDeferredPage = current(); return;}
+      const s=current();
+      if(entry.op==='recommend'&&s.root==='home'&&s.filter==='rec'&&s.recLoading===entry.params?.page){
+        if(entry.value&&!entry.error)afterRender(s);
+        else if($('recMore')){$('recMore').innerHTML=dcStatus(entry,'更多推荐');focusStructureVersion++;}
+        return;
+      }
       const liveFocus = document.activeElement?.dataset.k;
       const field = document.activeElement?.id === 'query' ? [document.activeElement.selectionStart,document.activeElement.selectionEnd] : null;
-      redraw(liveFocus || current().focus);
+      if(!dcPatchStream(entry))redraw(liveFocus || current().focus);
       if (field && document.activeElement?.id === 'query') document.activeElement.setSelectionRange(...field);
     });
   }
@@ -1357,7 +1385,8 @@ if (bsOnline) {
       entry = null;
     }
     if (!entry) {
-      entry = {key,op,viewer:owner,tag:'d'+(++dcSequence),value:null,pending:null,error:null,time:0,load:options.load || (() => window.BSApi.call(op,params))};
+      entry = {key,op,params,viewer:owner,tag:'d'+(++dcSequence),value:null,pending:null,error:null,time:0,load:options.load || (() => window.BSApi.call(op,params))};
+      if(op==='recommend'&&options.initial){entry.value=options.initial;entry.time=Date.now();}
       if(op==='weekly'){
         const saved=read('weekly',null);
         if(saved?.value?.items?.length && saved.time){entry.value=saved.value;entry.time=saved.time}
@@ -1368,7 +1397,7 @@ if (bsOnline) {
     }
     if (options.load && !entry.pending) entry.load=options.load;
     if (options.watch !== false) dcVisible.keys.add(key);
-    if (!entry.error && (!entry.value || Date.now()-entry.time > (options.ttl ?? 5*60_000))) dcLaunch(entry);
+    if (!entry.error && (!entry.value || Date.now()-entry.time > (options.ttl ?? (op==='recommend'?Infinity:5*60_000)))) dcLaunch(entry);
     if (dcEntries.size > 160) {
       for (const old of dcEntries.values()) {
         if (old.pending || dcVisible.keys.has(old.key)) continue;
@@ -1435,12 +1464,23 @@ if (bsOnline) {
   function dcMore(entry) {
     if(!entry?.value?.next || entry.pending || entry.error)return false;
     dcLaunch(entry);
-    redraw(document.activeElement?.dataset.k);
+    const stream=view.querySelector('[data-stream="'+entry.tag+'"]');
+    if(stream)stream.setAttribute('aria-busy','true');
     return true;
   }
   function dcStreamRows(entry, label, draw, message) {
-    return '<div data-stream="'+entry.tag+'">'+(entry.value?draw(dcItems(entry)):'')+dcStatus(entry,label)+
-      (entry.value&&!entry.value.items.length?empty(message):'')+'</div>';
+    entry.streamRender={label,draw,message};
+    return '<div data-stream="'+entry.tag+'" aria-busy="'+!!entry.pending+'"><div data-stream-items>'+(entry.value?draw(dcItems(entry)):'')+'</div><div data-stream-state>'+dcStatus(entry,label)+
+      (entry.value&&!entry.value.items.length?empty(message):'')+'</div></div>';
+  }
+  function dcPatchStream(entry){
+    const config=entry.streamRender,stream=config&&view.querySelector('[data-stream="'+entry.tag+'"]');
+    if(!stream||!entry.value)return false;
+    const host=stream.querySelector('[data-stream-items]');
+    if(!appendRenderedList(host?.firstElementChild,config.draw(dcItems(entry))))return false;
+    const status=stream.querySelector('[data-stream-state]'),html=dcStatus(entry,config.label);
+    if(status.innerHTML!==html){status.innerHTML=html;focusStructureVersion++;}
+    stream.setAttribute('aria-busy',String(!!entry.pending));stashScroll(current());afterRender(current());return true;
   }
   function dcPager(s, slot, entry) {
     const p = dcPageNumber(s,slot);
@@ -1487,7 +1527,10 @@ if (bsOnline) {
     }
     const films = dcRandomHome();
     const picks = dcItems(films);
-    const rec = dcQuery('recommend',{page:s.recBatch || 1});
+    const owner=dcOwner();
+    if(s.recSnapshot&&s.recSnapshot.viewer!==owner){for(const k of ['recSnapshot','recExtra','recSeen','recLoading','recPrevious','recBatch','recLast','recNext'])delete s[k];}
+    const rec = dcQuery('recommend',{page:s.recBatch||1},{initial:s.recSnapshot?.viewer===owner&&s.recSnapshot.page===(s.recBatch||1)?s.recSnapshot.value:undefined});
+    if(rec.value&&!rec.error&&!rec.pending)s.recSnapshot={viewer:owner,page:s.recBatch||1,value:rec.value};
     const prev = s.recPrevious && dcKeys.get(s.recPrevious);
     const shown = prev && prev.viewer === dcOwner() && (!rec.value || rec.pending || rec.error) ? prev : rec;
     const caption = '<span class="eyeline"><i></i>影视精选</span>';
@@ -1511,15 +1554,15 @@ if (bsOnline) {
     const more=s.recLoading && dcQuery('recommend',{page:s.recLoading});
     const cards = dcStatus(rec,'推荐',shown===rec)+oldNote+(grid ||
       (rec.value?empty(rec.value.items?.length && s.recSeen?.length?'本批没有新的推荐视频':'暂无推荐视频'):''));
-    return wrap(tabs+banner+group('为你推荐',cards+(more?dcStatus(more,'更多推荐'):''),b('refresh','refresh','refresh','','↻　换一批','textBtn')));
+    return wrap(tabs+banner+group('为你推荐','<div id="recCards">'+cards+'</div><div id="recMore">'+(more?dcStatus(more,'更多推荐'):'')+'</div>',b('refresh','refresh','refresh','','↻　换一批','textBtn')));
   };
   function appendRecommendations(s){
     if (s.root!=='home'||s.filter!=='rec'||overlay||s.recPrevious||s.recLoading) return;
     if(!s.recNext)return;
     const p=s.recLoading=s.recNext===true?(s.recLast||s.recBatch||1)+1:Number(s.recNext);
     if (!(p>(s.recLast||s.recBatch||1))){delete s.recLoading;return}
-    dcQuery('recommend',{page:p});
-    redraw(document.activeElement?.dataset.k);
+    const entry=dcQuery('recommend',{page:p});
+    if($('recMore')){$('recMore').innerHTML=dcStatus(entry,'更多推荐');focusStructureVersion++;}
   }
   function atRecEnd(s){
     return s.root==='home' && s.filter==='rec' && view.scrollTop>0 &&
@@ -1601,7 +1644,9 @@ if (bsOnline) {
         const extra=new Set(s.recExtra||[]);
         for(const v of dcItems(e))if(v.kind==='video')extra.add(v.id);
         s.recExtra=[...extra];s.recLast=page;s.recNext=e.value.next;delete s.recLoading;
-        redraw(document.activeElement?.dataset.k);
+        const all=[...new Set([...(s.recSnapshot?.value.items||[]).map(x=>dcRegister(x)?.id).filter(id=>!s.recSeen?.includes(id)),...s.recExtra])].map(id=>V[id]).filter(Boolean);
+        if(appendRenderedList(view.querySelector('#recCards .grid'),tileList(all,'rec'))){const more=$('recMore');if(more)more.replaceChildren();stashScroll(s);observeEpisodeShots();}
+        else redraw(document.activeElement?.dataset.k);
         return;
       }
     }
@@ -1680,7 +1725,6 @@ if (bsOnline) {
   };
   liveScreen = function(s) {
     dcBegin(s);
-    const directory = dcQuery('liveAreas');
     const options = [['rec','推荐'],['following','关注'],['knowledge','知识'],['game','游戏'],['music','音乐'],['life','生活']];
     if (!options.some(([k])=>k===s.area)) s.area='rec';
     const head=top('直播')+subTabs(options,s.area,'area','area');
@@ -1691,6 +1735,7 @@ if (bsOnline) {
       const params=s.area==='following'?{followed:true}:{};
       rooms=dcContinuous(slot,params,page=>window.BSApi.call('liveRooms',{...params,page}));
     } else {
+      const directory = dcQuery('liveAreas');
       if (!directory.value) return head+dcStatus(directory,'直播分区');
       const pattern={knowledge:/知识|学习|科普|百科/,game:/游戏|网游|手游|电竞|单机/,music:/音乐|唱见|唱歌|演奏|乐器|弹唱/,life:/生活|日常/}[s.area];
       const variants=[];
@@ -2223,8 +2268,9 @@ if (bsOnline) {
   const dcBaseArrows=revisedArrow;
   revisedArrow=function(s,el,key) {
     if(key==='ArrowDown' && dcActiveStream && el.closest('[data-stream]')){
-      const rows=[...el.closest('[data-stream]').querySelectorAll('button[data-row]')].filter(n=>!n.disabled && !n.closest('.stateNote'));
-      if(rows.at(-1)?.dataset.row===el.dataset.row && dcMore(dcActiveStream))return true;
+      const last=el.closest('[data-stream]').querySelector('[data-stream-items]')?.firstElementChild?.lastElementChild;
+      const target=last?.matches('button[data-row]')?last:last?.querySelector('button[data-row]');
+      if(target?.dataset.row===el.dataset.row && dcMore(dcActiveStream))return true;
     }
     if (s.root==='home' && s.filter==='rec') {
       const r=el.dataset.row,down=key==='ArrowDown',up=key==='ArrowUp';
@@ -2333,16 +2379,19 @@ if (bsOnline) {
   const foldersById = new Map();
   let account = null, generation = 0, authAttempt = 0, authBusy = true, authError = '';
   let qrSession = null, qrNumber = 0;
-  let redrawQueued = false, firstShelfFocus = null;
+  let redrawQueued = false, redrawFeedOnly=false, firstShelfFocus = null;
   const personalRoutes = new Set(['shelf','account','login','folders','folder','later','likes','follows','author','history','post']);
   signed = false;
 
-  function redrawPersonal() {
-    if (redrawQueued || overlay || document.hidden) return;
+  function redrawPersonal(resource) {
+    if (overlay || document.hidden) return;
+    if(redrawQueued){if(resource?.op!=='feed')redrawFeedOnly=false;return;}
+    redrawFeedOnly=resource?.op==='feed';
     redrawQueued = true;
     requestAnimationFrame(() => {
       redrawQueued = false;
       const s = current();
+      if(redrawFeedOnly&&s.root==='feed'&&patchFeed())return;
       if (!overlay && (personalRoutes.has(s.name) || ['mine','feed'].includes(s.root))) {
         const previous = document.activeElement?.dataset.k;
         redraw(previous || s.focus);
@@ -2406,7 +2455,7 @@ if (bsOnline) {
       request(r);
     }
     const ttl = op==='feed' || op==='history' ? 30000 : 120000;
-    if (r.ready && !r.error && !r.busy && !r.readBy.has(current()) && Date.now()-r.fetched>ttl) request(r);
+    if (r.ready && !r.error && !r.busy && !r.readBy.has(current()) && !(op==='feed'&&current().feedResource===key) && Date.now()-r.fetched>ttl) request(r);
     r.readBy.add(current());
     return r;
   }
@@ -2437,7 +2486,7 @@ if (bsOnline) {
       if (generation === epoch && cache.get(r.key) === r) { r.error = e.message || '读取失败'; failSession(e); }
     } finally {
       r.busy = false;
-      if (generation === epoch && cache.get(r.key) === r && r.readBy.has(current())) redrawPersonal();
+      if (generation === epoch && cache.get(r.key) === r && r.readBy.has(current())) redrawPersonal(r);
     }
   }
   function mark(kind, id, value) {
@@ -2462,10 +2511,10 @@ if (bsOnline) {
   function clearResources(...ops) {
     for (const [key,r] of cache) if (ops.includes(r.op)) cache.delete(key);
   }
-  function status(r, moreLabel = '加载更多') {
+  function status(r, moreLabel = '加载更多', automatic=false) {
     if (r.error) return '<div class="stateNote"><span>'+esc(r.error)+'</span>'+b('retry-'+r.op,'load','personalRetry',r.key,'重试','secondary')+'</div>';
     if (r.busy) return '<p class="submeta" role="status">正在读取…</p>';
-    if (r.more != null) return b('more-'+r.op,'load','personalMore',r.key,esc(moreLabel),'secondary');
+    if (r.more != null&&!automatic) return b('more-'+r.op,'load','personalMore',r.key,esc(moreLabel),'secondary');
     return '';
   }
   const listCount = r => r?.ready ? (r.total ?? (r.more == null ? r.items.length : null)) : null;
@@ -2965,11 +3014,40 @@ if (bsOnline) {
       selected='';s.creator='all';
     }
     const r=resource('feed',{...(selected?{mid:selected}:{}),...(s.filter==='video'?{type:'video'}:{})});
+    s.feedResource=r.key;
     const chips=[['all','全部'],...authors.items.map(a=>{const c=register(a);return c?[c.id,c.title]:null;}).filter(Boolean)].map(([id,label])=>b('creator-'+id,'authors','feedCreator',id,(id==='all'?'':avatar(id))+esc(label),'creatorChip','aria-selected="'+(id===(selected||'all'))+'"')).join('');
     const strip='<div class="authorStrip hStrip">'+b('all-follows','authors','private','follows','全部关注　›','manageChip')+chips+'</div>';
     const filtered=feedItems(r.items,s.filter||'all',selected);
-    return wrap(top('关注动态')+strip+(authors.error?status(authors):'')+subTabs([['all','全部动态'],['video','视频投稿'],['post','图文'],['room','正在直播']],s.filter,'feedTab')+(filtered.length?'<div class="feedGrid">'+filtered.map(feedCard).join('')+'</div>':r.ready?empty('这批动态中没有符合条件的内容'):'')+status(r));
+    return wrap(top('关注动态')+strip+(authors.error?status(authors):'')+subTabs([['all','全部动态'],['video','视频投稿'],['post','图文'],['room','正在直播']],s.filter,'feedTab')+'<section data-feed-key="'+esc(r.key)+'"><div class="feedGrid">'+filtered.map(feedCard).join('')+'</div><div data-feed-empty>'+(!filtered.length&&r.ready&&!r.more?empty('暂无符合条件的动态'):'')+'</div><div data-feed-state>'+status(r,'',true)+'</div><div data-feed-tail aria-hidden="true"></div></section>');
   };
+  let feedQueued=false;
+  function currentFeed(){return current().root==='feed'&&signed?cache.get(current().feedResource):null;}
+  function updateFeedState(r){
+    const host=view.querySelector('[data-feed-key]');if(!host||host.dataset.feedKey!==r.key)return;
+    host.setAttribute('aria-busy',String(r.busy));
+    const state=host.querySelector('[data-feed-state]'),html=status(r,'',true);
+    if(state.innerHTML!==html){state.innerHTML=html;focusStructureVersion++;}
+    const blank=host.querySelector('[data-feed-empty]');
+    blank.innerHTML=!feedItems(r.items,current().filter||'all',current().creator==='all'?'':current().creator).length&&r.ready&&!r.more?empty('暂无符合条件的动态'):'';
+  }
+  function moreFeed(){
+    const r=currentFeed();if(!r||!r.ready||r.busy||r.error||r.more==null||overlay)return false;
+    request(r,true);updateFeedState(r);return true;
+  }
+  function scheduleFeed(){
+    if(feedQueued||!currentFeed()||overlay||document.hidden)return;
+    feedQueued=true;requestAnimationFrame(()=>{
+      feedQueued=false;const tail=view.querySelector('[data-feed-tail]');
+      if(tail&&tail.getBoundingClientRect().top<view.getBoundingClientRect().bottom+400*scale)moreFeed();
+    });
+  }
+  function patchFeed(){
+    const r=currentFeed(),host=view.querySelector('[data-feed-key]');if(!r||!host||host.dataset.feedKey!==r.key)return false;
+    const rows=feedItems(r.items,current().filter||'all',current().creator==='all'?'':current().creator);
+    if(!appendRenderedList(host.querySelector('.feedGrid'),'<div class="feedGrid">'+rows.map(feedCard).join('')+'</div>'))return false;
+    updateFeedState(r);stashScroll(current());scheduleFeed();return true;
+  }
+  view.addEventListener('scroll',scheduleFeed,{passive:true});
   function authorRooms(items) {
     return '<div class="roomGrid">'+items.map((item,i)=>{
       const r=register(item); if(!r)return '';
@@ -3046,6 +3124,7 @@ if (bsOnline) {
   afterRender=function(s) {
     if (qrSession && s!==qrSession.route) cancelQr();
     baseAfter(s);
+    if(s.root==='feed')scheduleFeed();
     if(s.name==='shelf')syncShelfFocus();
     if(firstShelfFocus) {
       const f=firstShelfFocus;
@@ -3135,6 +3214,13 @@ if (bsOnline) {
   const baseDispatch=revisedDispatch;
   const personalArrow=revisedArrow;
   revisedArrow=function(s,el,key) {
+    if(s.root==='feed'&&key==='ArrowDown'){
+      const cards=view.querySelector('.feedGrid'),last=cards?.lastElementChild;
+      if(!last||last.dataset.row===el.dataset.row){
+        if(moreFeed()||currentFeed()?.busy)return true;
+        if(currentFeed()?.error&&firstKey('[data-feed-state] [data-k]'))return true;
+      }
+    }
     if(s.name==='post'){
       if(['ArrowDown','ArrowUp'].includes(key) && el.matches('.postCopy,.replyCard>[data-k]')){
         const down=key==='ArrowDown';
@@ -3707,38 +3793,40 @@ if (bsOnline) {
     poll();
   }
   paintComments = function() {
-    const p=session, box=player.querySelector('.comments');
-    if (!p||!p.ready||!prefs.dm||!p.messages.length) { box.hidden=true; return; }
-    box.hidden=false; box.style.opacity=prefs.opacity;
-    const now=p.route.room?performance.now()/1000:position(p), a=p.messages;
-    let lo=0,hi=a.length;
-    while(lo<hi) { const mid=(lo+hi)>>>1; if(a[mid].time<=now)lo=mid+1;else hi=mid; }
-    const limit=Math.min(3,Math.max(1,prefs.density)), rows=[];
-    for(let i=lo-1;i>=0&&rows.length<limit&&now-a[i].time<8;i--) {
-      const m=a[i],lane=i%limit;
-      if(rows.some(row=>row.lane===lane))continue;
-      rows.push({m,lane,i});
+    const p=session,box=player.querySelector('.comments');
+    if(!p||!p.ready||!prefs.dm||!p.messages.length){box.hidden=true;if(p)p.dmState=null;box.replaceChildren();return;}
+    const now=p.route.room?performance.now()/1000:position(p),messages=p.messages;
+    const lanes=Math.min(3,Math.max(1,prefs.density)),size=prefs.dmSize;
+    box.hidden=false;
+    let state=p.dmState;
+    if(!state||state.messages!==messages||state.lanes!==lanes||state.size!==size||now<state.last-.1||now-state.last>1.2){
+      let lo=0,hi=messages.length;
+      while(lo<hi){const mid=(lo+hi)>>>1;if(messages[mid].time<now-8)lo=mid+1;else hi=mid;}
+      state=p.dmState={messages,lanes,size,cursor:lo,active:[],last:now,width:box.clientWidth||1440,height:box.clientHeight||600};
+      box.replaceChildren();
     }
-    const key=rows.map(row=>row.i+'/'+row.m.time).join(',');
-    if (p.paintKey!==key) {
-      p.paintKey=key; box.replaceChildren();
-      for (const row of rows) {
-        const span=document.createElement('span'); span.textContent=row.m.text;
-        box.append(span);
-      }
+    state.last=now;box.style.opacity=prefs.opacity;
+    state.active=state.active.filter(row=>{if(row.end>now)return true;row.node.remove();return false;});
+    while(state.cursor<messages.length&&messages[state.cursor].time<=now){
+      const m=messages[state.cursor++],mode=Number(m.mode),fixed=mode===4||mode===5,duration=fixed?5:8;
+      if(m.time+duration<=now)continue;
+      const band=mode===4?'bottom':'top';
+      let lane=0;while(lane<lanes&&state.active.some(row=>row.band===band&&row.lane===lane))lane++;
+      if(lane===lanes)continue;
+      const n=document.createElement('span');n.textContent=m.text;
+      n.style.fontSize=size+'px';n.style.top=(mode===4?Math.max(0,state.height-(lane+1)*(size+16)):lane*(size+16))+'px';
+      n.style.color=typeof m.color==='string'&&/^#[\da-f]{6}$/i.test(m.color)?m.color:Number.isInteger(m.color)?'#'+(m.color&0xffffff).toString(16).padStart(6,'0'):'#fff';
+      box.append(n);
+      state.active.push({node:n,width:n.offsetWidth,start:m.time,end:m.time+duration,mode,band,lane});
     }
-    [...box.children].forEach((n,j)=>{
-      const {m,lane}=rows[j];
-      if(!m)return;
-      const fraction=(now-m.time)/8,mode=Number(m.mode);
-      n.style.fontSize=prefs.dmSize+'px';
-      n.style.top=lane*42+'px';
-      const color = typeof m.color==='string'&&/^#[\da-f]{6}$/i.test(m.color) ? m.color : Number.isInteger(m.color) ? '#'+(m.color&0xffffff).toString(16).padStart(6,'0') : '#fff';
-      n.style.color=color;
-      n.style.transform=mode===4||mode===5?'translateX('+((1440-n.offsetWidth)/2)+'px)':
-        'translateX('+(mode===6?-n.offsetWidth+fraction*(1440+n.offsetWidth):1440-fraction*(1440+n.offsetWidth))+'px)';
-    });
+    for(const row of state.active){
+      const fraction=(now-row.start)/8;
+      const x=row.mode===4||row.mode===5?(state.width-row.width)/2:row.mode===6?-row.width+fraction*(state.width+row.width):state.width-fraction*(state.width+row.width);
+      row.node.style.transform='translate3d('+x+'px,0,0)';
+    }
   };
+  window.addEventListener('resize',()=>{if(session)session.dmState=null;});
+
   rememberPlayback = function(forceCloud=false) {
     const p=session;
     if (!p?.ready||!p.presented||p.route.room||!p.ids?.cid||video.readyState<1) return;

@@ -373,14 +373,17 @@
         const d = await live('/xlive/web-ucenter/v1/xfetter/GetWebList', {hit_ab: true});
         return list(d?.rooms ?? d?.list, x => roomCard({...x, live_status: x.live_status ?? 1}));
       }
-      if (!Number(p.parentAreaId) && !Number(p.areaId)) {
-        const d = await live('/xlive/web-interface/v1/webMain/getMoreRecList', {platform: 'web'});
-        return list(d?.recommend_room_list, x => roomCard({...x, live_status: x.live_status ?? 1}));
-      }
       const i = page(p);
+      const recommended=!Number(p.parentAreaId)&&!Number(p.areaId);
+      if(recommended&&i===1){
+        const d=await live('/xlive/web-interface/v1/webMain/getMoreRecList',{platform:'web'});
+        return {...list(d?.recommend_room_list,x=>roomCard({...x,live_status:x.live_status??1})),next:2};
+      }
+      const sourcePage=recommended?i-1:i;
       const d = await live('/room/v3/area/getRoomList', {parent_area_id:p.parentAreaId ?? 0,
-        area_id:p.areaId ?? 0, sort_type:'online', page_size:PAGE_SIZE, page:i});
-      return list(d?.list, x => roomCard({...x, live_status: x.live_status ?? 1}), i, bool(d?.has_more), d?.count);
+        area_id:p.areaId ?? 0, sort_type:'online', page_size:PAGE_SIZE, page:sourcePage});
+      const more=bool(d?.has_more)??(d?.count!=null?sourcePage*PAGE_SIZE<num(d.count):d?.list?.length===PAGE_SIZE);
+      return list(d?.list, x => roomCard({...x, live_status: x.live_status ?? 1}), i, more, d?.count);
     },
     async liveRoom(p) {
       const d = await live('/room/v1/Room/get_info', {room_id: reqId(p.roomId, 'roomId')});

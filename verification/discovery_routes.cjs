@@ -47,7 +47,7 @@ async function settle(){for(let i=0;i<5;i++)await tick()}
 async function open(s){x.open(s);await settle();assert.equal(new Set(ids()).size,ids().length,'duplicate focus IDs');routes++}
 async function run(){
   await open(br('home','rec'));has('推荐第1批');has('data-k="hero-primary"');
-  has('test-art.png@120w_90h.webp');lacks('重复稿件');
+  has('test-art.png@640w.webp');lacks('重复稿件');
   x.dispatch('refresh','');await settle();has('推荐第2批');
   await open(br('home','hot'));has('本周投稿');has('本周刊');has('热门投稿');lacks('data-act="dcPage"');
   for(const cat of x.allCats){await open(br('home','zones',{cat}));has('data-row="zoneVideo0"');lacks('分区排行榜')}

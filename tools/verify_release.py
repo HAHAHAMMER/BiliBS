@@ -36,6 +36,7 @@ def main():
         ('discovery-ui',[py,'verification/discovery_check.py']),
         ('remote-refresh-replay',[py,'verification/remote_refresh_replay.py']),
         ('personal-ui',[py,'verification/personal_check.py']),
+        ('streaming-and-performance',[py,'verification/streaming_check.py']),
         ('playback',[py,'verification/player_online_check.py','--out','verification/evidence/player-online.json']),
         ('ui-interaction',[py,'verification/ui_regression.py',*flags]),
         ('diagnostic-return',[py,'verification/diagnostic_return.py',*flags])

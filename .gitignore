@@ -28,3 +28,7 @@ start-emulator.cmd
 /verification/reference/
 /verification/requirements.json
 /verification/*traceability.csv
+
+# Published app installer (SDKs and other build outputs stay excluded)
+!releases/
+!releases/BiliBS-TV-v*.apk

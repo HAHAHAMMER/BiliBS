@@ -1,6 +1,6 @@
 # BiliBS Android TV
 
-应用标识为 `tv.bilibs.app`，版本为 1.0.0。安装包适用于有 Android System WebView 的 Android TV 8.0（API 26）及以上设备。网页界面使用现代 Chromium 的 JavaScript、CSS 和 Media Source Extensions。老电视的 WebView 版本、片源编码以及硬件解码能力会影响实际可用功能。
+应用标识为 `tv.bilibs.app`，版本为 1.0.1。安装包适用于有 Android System WebView 的 Android TV 8.0（API 26）及以上设备。网页界面使用现代 Chromium 的 JavaScript、CSS 和 Media Source Extensions。老电视的 WebView 版本、片源编码以及硬件解码能力会影响实际可用功能。
 
 ## 编译与安装
 
